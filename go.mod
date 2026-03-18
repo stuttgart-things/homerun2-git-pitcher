@@ -5,6 +5,7 @@ go 1.25.5
 require (
 	charm.land/bubbletea/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.2
+	github.com/google/go-github/v68 v68.0.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stuttgart-things/homerun-library/v3 v3.0.4
 	gopkg.in/yaml.v3 v3.0.1
@@ -108,7 +109,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/gomodule/redigo v1.9.2 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/google/go-github/v68 v68.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
