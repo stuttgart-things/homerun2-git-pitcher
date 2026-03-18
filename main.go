@@ -66,21 +66,8 @@ func main() {
 	authMiddleware := middleware.TokenAuthMiddleware
 	buildInfo := handlers.BuildInfo{Version: version, Commit: commit, Date: date}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", handlers.NewHealthHandler(buildInfo))
-	mux.HandleFunc("/pitch", authMiddleware(handlers.NewPitchHandler(p)))
-
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: middleware.RequestLogging(mux),
-	}
-
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server error", "error", err)
-			os.Exit(1)
-		}
-	}()
+	// Rate limit provider is set when the watcher is configured.
+	var rateLimitProvider handlers.RateLimitProvider
 
 	// Start GitHub watcher if WATCH_CONFIG is set.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
@@ -101,6 +88,18 @@ func main() {
 		}
 
 		ghWatcher := watcher.NewGitHubWatcher(watchCfg, dedup)
+
+		// Wire rate limit to health endpoint.
+		rateLimitProvider = func() handlers.RateLimitInfo {
+			s := ghWatcher.RateLimit.Status()
+			return handlers.RateLimitInfo{
+				Limit:      s.Limit,
+				Remaining:  s.Remaining,
+				Reset:      s.Reset.Format(time.RFC3339),
+				BackingOff: s.BackingOff,
+			}
+		}
+
 		bridge := &watcher.Bridge{
 			Watcher: ghWatcher,
 			Pitcher: p,
@@ -117,6 +116,22 @@ func main() {
 			}
 		}()
 	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handlers.NewHealthHandler(buildInfo, rateLimitProvider))
+	mux.HandleFunc("/pitch", authMiddleware(handlers.NewPitchHandler(p)))
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: middleware.RequestLogging(mux),
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
