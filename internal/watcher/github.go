@@ -13,9 +13,10 @@ import (
 
 // GitHubWatcher implements GitWatcher by polling the GitHub API.
 type GitHubWatcher struct {
-	client *github.Client
-	config *WatchConfig
-	dedup  DedupStore
+	client    *github.Client
+	config    *WatchConfig
+	dedup     DedupStore
+	RateLimit *RateLimitMonitor
 
 	// firstRun tracks whether a repo has completed its initial poll.
 	// On the first poll we mark events as seen without pitching them.
@@ -43,10 +44,11 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) *GitHubWatcher {
 	}
 
 	return &GitHubWatcher{
-		client:   client,
-		config:   cfg,
-		dedup:    dedup,
-		firstRun: firstRun,
+		client:    client,
+		config:    cfg,
+		dedup:     dedup,
+		RateLimit: NewRateLimitMonitor(DefaultBackoffThreshold),
+		firstRun:  firstRun,
 	}
 }
 
@@ -90,6 +92,10 @@ func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan
 			logger.Info("watcher stopped")
 			return
 		case <-ticker.C:
+			// Wait if rate limit is low before making another API call.
+			if err := w.RateLimit.WaitIfNeeded(ctx); err != nil {
+				return
+			}
 			w.fetchAndSend(ctx, repo, msgs)
 		}
 	}
@@ -107,13 +113,9 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 		return
 	}
 
-	// Log rate limit usage.
+	// Update rate limit monitor from response.
 	if resp.Rate.Limit > 0 {
-		logger.Debug("rate limit",
-			"remaining", resp.Rate.Remaining,
-			"limit", resp.Rate.Limit,
-			"reset", resp.Rate.Reset.Format(time.RFC3339),
-		)
+		w.RateLimit.Update(resp.Rate)
 	}
 
 	// Handle conditional requests (304 Not Modified).
