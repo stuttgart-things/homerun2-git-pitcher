@@ -14,12 +14,10 @@ import (
 
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/banner"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/config"
-
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/handlers"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/middleware"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/pitcher"
-
-
+	"github.com/stuttgart-things/homerun2-git-pitcher/internal/watcher"
 
 	homerun "github.com/stuttgart-things/homerun-library/v3"
 )
@@ -84,11 +82,49 @@ func main() {
 		}
 	}()
 
+	// Start GitHub watcher if WATCH_CONFIG is set.
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+
+	if watchConfigPath := homerun.GetEnv("WATCH_CONFIG", ""); watchConfigPath != "" {
+		watchCfg, err := watcher.LoadWatchConfig(watchConfigPath)
+		if err != nil {
+			slog.Error("failed to load watch config", "path", watchConfigPath, "error", err)
+			os.Exit(1)
+		}
+
+		dedupPath := homerun.GetEnv("DEDUP_STATE_FILE", "")
+		dedup, err := watcher.NewMemoryDedupStore(watcher.DefaultDedupConfig(), dedupPath)
+		if err != nil {
+			slog.Error("failed to create dedup store", "error", err)
+			os.Exit(1)
+		}
+
+		ghWatcher := watcher.NewGitHubWatcher(watchCfg, dedup)
+		bridge := &watcher.Bridge{
+			Watcher: ghWatcher,
+			Pitcher: p,
+			Dedup:   dedup,
+		}
+
+		go func() {
+			slog.Info("starting github watcher",
+				"repos", len(watchCfg.GitHub.Repos),
+				"config", watchConfigPath,
+			)
+			if err := bridge.Run(watchCtx); err != nil {
+				slog.Error("watcher bridge error", "error", err)
+			}
+		}()
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slog.Info("shutting down server")
+	slog.Info("shutting down")
+	watchCancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
@@ -96,6 +132,4 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("server exited gracefully")
-
-
 }

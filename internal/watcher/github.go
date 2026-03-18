@@ -187,7 +187,8 @@ func eventTypeToKind(ghType string) EventKind {
 	}
 }
 
-// eventToMessage converts a GitHub event into a homerun Message.
+// eventToMessage converts a GitHub event into a homerun Message with
+// rich, event-type-specific fields parsed from the event payload.
 func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 	kind := eventTypeToKind(event.GetType())
 	actor := ""
@@ -195,21 +196,116 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 		actor = event.GetActor().GetLogin()
 	}
 
-	title := fmt.Sprintf("[%s] %s on %s", kind, event.GetType(), repo.FullName())
-	body := fmt.Sprintf("Event %s by %s at %s",
-		event.GetID(),
-		actor,
-		event.GetCreatedAt().Format(time.RFC3339),
-	)
+	title, body, severity, url := parseEventPayload(event, repo)
 
 	return homerun.Message{
 		Title:     title,
 		Message:   body,
-		Severity:  "info",
+		Severity:  severity,
 		Author:    actor,
 		Timestamp: event.GetCreatedAt().Format(time.RFC3339),
 		System:    "homerun2-git-pitcher",
 		Tags:      fmt.Sprintf("github,%s,%s", kind, repo.FullName()),
-		Url:       fmt.Sprintf("https://github.com/%s", repo.FullName()),
+		Url:       url,
 	}
+}
+
+// parseEventPayload extracts title, body, severity, and URL from the event
+// payload based on event type. Falls back to generic info if parsing fails.
+func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, severity, url string) {
+	repoURL := fmt.Sprintf("https://github.com/%s", repo.FullName())
+	severity = "info"
+	url = repoURL
+
+	payload, err := event.ParsePayload()
+	if err != nil {
+		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
+		body = fmt.Sprintf("Event %s (payload parse error: %v)", event.GetID(), err)
+		return
+	}
+
+	switch p := payload.(type) {
+	case *github.PushEvent:
+		branch := ""
+		if ref := p.GetRef(); ref != "" {
+			// Strip "refs/heads/" prefix.
+			if len(ref) > 11 && ref[:11] == "refs/heads/" {
+				branch = ref[11:]
+			} else {
+				branch = ref
+			}
+		}
+		commits := len(p.Commits)
+		title = fmt.Sprintf("Push to %s on %s", branch, repo.FullName())
+		body = fmt.Sprintf("%d commit(s) pushed by %s", commits, p.GetPusher().GetName())
+		if p.GetHeadCommit() != nil {
+			body += fmt.Sprintf(": %s", p.GetHeadCommit().GetMessage())
+		}
+		url = p.GetCompare()
+		if url == "" {
+			url = repoURL
+
+		}
+
+	case *github.PullRequestEvent:
+		pr := p.GetPullRequest()
+		action := p.GetAction()
+		title = fmt.Sprintf("PR #%d: %s (%s) on %s", pr.GetNumber(), pr.GetTitle(), action, repo.FullName())
+		body = fmt.Sprintf("PR %s by %s: %s → %s",
+			action,
+			pr.GetUser().GetLogin(),
+			pr.GetHead().GetRef(),
+			pr.GetBase().GetRef(),
+		)
+		switch action {
+		case "opened":
+			severity = "info"
+		case "closed":
+			if pr.GetMerged() {
+				severity = "success"
+				body = fmt.Sprintf("PR merged by %s: %s → %s", pr.GetMergedBy().GetLogin(), pr.GetHead().GetRef(), pr.GetBase().GetRef())
+			} else {
+				severity = "warning"
+			}
+		}
+		url = pr.GetHTMLURL()
+
+	case *github.ReleaseEvent:
+		rel := p.GetRelease()
+		title = fmt.Sprintf("Release %s on %s", rel.GetTagName(), repo.FullName())
+		body = rel.GetName()
+		if relBody := rel.GetBody(); relBody != "" {
+			if len(relBody) > 200 {
+				relBody = relBody[:200] + "..."
+			}
+			body += "\n" + relBody
+		}
+		severity = "success"
+		url = rel.GetHTMLURL()
+
+	case *github.WorkflowRunEvent:
+		run := p.GetWorkflowRun()
+		conclusion := run.GetConclusion()
+		title = fmt.Sprintf("Workflow %s %s on %s", run.GetName(), conclusion, repo.FullName())
+		body = fmt.Sprintf("Workflow run #%d on branch %s: %s",
+			run.GetRunNumber(),
+			run.GetHeadBranch(),
+			conclusion,
+		)
+		switch conclusion {
+		case "success":
+			severity = "success"
+		case "failure":
+			severity = "error"
+		case "cancelled", "skipped":
+			severity = "warning"
+		}
+		url = run.GetHTMLURL()
+
+	default:
+		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
+		body = fmt.Sprintf("Event %s", event.GetID())
+	}
+
+	return
 }
