@@ -34,6 +34,3 @@ func NewHealthHandler(info BuildInfo) http.HandlerFunc {
 		}
 	}
 }
-{%- else %}
-package handlers
-

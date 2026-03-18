@@ -1,0 +1,9 @@
+version: "2"
+
+run:
+  modules-download-mode: readonly
+
+linters:
+  exclusions:
+    paths:
+      - dagger

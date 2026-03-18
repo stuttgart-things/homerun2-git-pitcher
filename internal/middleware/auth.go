@@ -46,6 +46,3 @@ func respondWithAuthError(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	_, _ = fmt.Fprintf(w, `{"status":"error","message":"%s"}`, message)
 }
-{%- else %}
-package middleware
-

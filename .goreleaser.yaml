@@ -30,7 +30,7 @@ checksum:
   name_template: "checksums.txt"
 
 snapshot:
-  version_template: "{% raw %}{{ incpatch .Version }}{% endraw %}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc

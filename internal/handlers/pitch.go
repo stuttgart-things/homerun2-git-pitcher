@@ -81,6 +81,3 @@ func respondWithJSON(w http.ResponseWriter, code int, payload any) {
 		slog.Error("error encoding response", "error", err)
 	}
 }
-{%- else %}
-package handlers
-

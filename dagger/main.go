@@ -24,7 +24,10 @@ func (m *Dagger) Lint(
 	// +default="500s"
 	timeout string,
 ) *dagger.Container {
-	return dag.Go().Lint(src, dagger.GoLintOpts{
+	// Exclude the dagger/ directory from linting — it contains Dagger module
+	// code with generated imports that cannot be resolved by golangci-lint.
+	lintSrc := src.WithoutDirectory("dagger")
+	return dag.Go().Lint(lintSrc, dagger.GoLintOpts{
 		Timeout: timeout,
 	})
 }

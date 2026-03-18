@@ -21,8 +21,6 @@ const serviceText = `HOMERUN2-GIT-PITCHER`
 
 const glitchChars = "░▒▓█▄▀▐▌╠╣╬═║╗╝╚╔"
 
-const fieldWidth = 70
-
 var (
 
 	primaryColor = lipgloss.NewStyle().

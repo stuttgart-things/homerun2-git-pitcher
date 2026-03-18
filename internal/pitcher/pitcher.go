@@ -84,6 +84,3 @@ func (p *FilePitcher) Pitch(msg homerun.Message) (string, string, error) {
 	slog.Debug("message pitched to file", "objectID", objectID, "path", p.Path)
 	return objectID, streamID, nil
 }
-{%- else %}
-package pitcher
-

@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: {% raw %}${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}{% endraw %}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,13 +23,13 @@ jobs:
         with:
           module: ./dagger
           call: lint --src . --progress plain
-          cloud-token: {% raw %}${{ secrets.DAGGER_CLOUD_TOKEN }}{% endraw %}
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
       - name: Dagger build-and-test
         uses: dagger/dagger-for-github@v8.4.0
         with:
           module: ./dagger
           call: build-and-test-binary --source . --progress plain
-          cloud-token: {% raw %}${{ secrets.DAGGER_CLOUD_TOKEN }}{% endraw %}
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
