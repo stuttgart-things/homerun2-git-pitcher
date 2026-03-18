@@ -1,0 +1,8 @@
+run:
+  build-tags:
+    - exclude
+  modules-download-mode: readonly
+
+issues:
+  exclude-dirs:
+    - dagger
