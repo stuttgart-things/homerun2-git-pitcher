@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Dagger CI module for homerun2-git-pitcher
 //
 // Provides build, lint, test, image build, and security scanning functions.
