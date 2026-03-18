@@ -1,0 +1,25 @@
+config.image: ghcr.io/stuttgart-things/homerun2-git-pitcher:v0.4.0
+config.namespace: homerun2
+config.redisAddr: redis-stack.homerun2.svc.cluster.local
+config.redisPort: "6379"
+config.redisStream: homerun
+config.redisPassword: changeme # pragma: allowlist secret
+config.authToken: changeme # pragma: allowlist secret
+config.githubToken: changeme # pragma: allowlist secret
+config.dedupStatePath: /data/dedup-state.json
+config.watchConfigYaml: |
+  github:
+    token: env:GITHUB_TOKEN
+    repos:
+      - owner: stuttgart-things
+        name: homerun2-led-catcher
+        interval: 5m
+        events: [push, pull_request, release, workflow_run]
+      - owner: stuttgart-things
+        name: homerun2-core-catcher
+        interval: 5m
+        events: [push, pull_request, release]
+      - owner: stuttgart-things
+        name: homerun2-omni-pitcher
+        interval: 5m
+        events: [push, release]

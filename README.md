@@ -180,6 +180,30 @@ task lint
 task run-local
 ```
 
+## KCL Deployment
+
+Kubernetes manifests are generated using [KCL](https://kcl-lang.io/). See [kcl/README.md](kcl/README.md) for full configuration reference.
+
+```bash
+# Render manifests
+kcl run kcl/ -Y tests/kcl-deploy-profile.yaml
+
+# Apply to cluster
+kcl run kcl/ -Y tests/kcl-deploy-profile.yaml \
+  -D 'config.namespace=homerun2' \
+  -D 'config.redisPassword=<password>' \
+  -D 'config.githubToken=<token>' \
+  | python3 -c "
+import yaml, sys
+data = yaml.safe_load(sys.stdin)
+for m in data['manifests']:
+    print('---')
+    print(yaml.dump(m, default_flow_style=False).rstrip())
+" | kubectl apply -f -
+```
+
+For production, use the [Flux component](https://github.com/stuttgart-things/flux/tree/main/apps/homerun2/components/git-pitcher) which references the KCL OCI artifact and applies cluster-specific patches.
+
 See [docs/](docs/) for full development, deployment, and CI/CD documentation.
 
 ## Links
