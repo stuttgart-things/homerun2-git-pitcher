@@ -52,7 +52,53 @@ docker run -d \
   ghcr.io/stuttgart-things/homerun2-git-pitcher:<tag>
 ```
 
-## Kubernetes
+## KCL Deployment (recommended)
+
+The recommended Kubernetes deployment method uses [KCL](https://kcl-lang.io/) manifests in the `kcl/` directory. This generates all resources (Namespace, ServiceAccount, ConfigMaps, Secrets, Deployment, Service, HTTPRoute) from a single configuration schema.
+
+### Render manifests
+
+```bash
+# Preview with default values
+kcl run kcl/
+
+# Preview with test profile
+kcl run kcl/ -Y tests/kcl-deploy-profile.yaml
+
+# Override specific values
+kcl run kcl/ -Y tests/kcl-deploy-profile.yaml \
+  -D 'config.namespace=homerun2-flux' \
+  -D 'config.image=ghcr.io/stuttgart-things/homerun2-git-pitcher:v0.4.0'
+```
+
+### Apply to cluster
+
+The KCL output wraps manifests in a `manifests:` list. Convert to multi-document YAML before applying:
+
+```bash
+kcl run kcl/ -Y tests/kcl-deploy-profile.yaml \
+  -D 'config.namespace=homerun2' \
+  -D 'config.redisAddr=redis-stack.homerun2.svc.cluster.local' \
+  -D 'config.redisPassword=<password>' \
+  -D 'config.githubToken=<token>' \
+  | python3 -c "
+import yaml, sys
+data = yaml.safe_load(sys.stdin)
+for m in data['manifests']:
+    print('---')
+    print(yaml.dump(m, default_flow_style=False).rstrip())
+" | kubectl apply -f -
+```
+
+### Configuration reference
+
+See [kcl/README.md](../kcl/README.md) for the full list of configuration keys and generated resources.
+
+### OCI artifact
+
+The CI/CD pipeline publishes the KCL module as an OCI artifact to `ghcr.io/stuttgart-things/homerun2-git-pitcher-kcl`. The Flux component references this artifact.
+
+## Kubernetes (manual)
 
 ### Required secrets
 
