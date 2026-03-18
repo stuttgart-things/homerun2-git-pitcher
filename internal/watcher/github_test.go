@@ -77,7 +77,7 @@ func TestNewGitHubWatcher(t *testing.T) {
 		},
 	}
 
-	w := NewGitHubWatcher(cfg)
+	w := NewGitHubWatcher(cfg, nil)
 
 	if w.client == nil {
 		t.Error("expected non-nil client")
@@ -85,7 +85,33 @@ func TestNewGitHubWatcher(t *testing.T) {
 	if w.config != cfg {
 		t.Error("expected config to be set")
 	}
-	if len(w.lastSeen) != 0 {
-		t.Error("expected empty lastSeen map")
+	if w.dedup == nil {
+		t.Error("expected default dedup store")
+	}
+	// First run should be true for repo with no persisted state.
+	if !w.firstRun["org/repo"] {
+		t.Error("expected firstRun to be true for new repo")
+	}
+}
+
+func TestNewGitHubWatcher_WithPersistedDedup(t *testing.T) {
+	cfg := &WatchConfig{
+		GitHub: GitHubConfig{
+			Token: "test-token",
+			Repos: []RepoConfig{
+				{Owner: "org", Name: "repo", Interval: 5 * time.Minute, Events: []EventKind{EventPush}},
+			},
+		},
+	}
+
+	// Pre-populate dedup store to simulate persisted state.
+	dedup, _ := NewMemoryDedupStore(DefaultDedupConfig(), "")
+	dedup.Mark("org/repo", "existing-event")
+
+	w := NewGitHubWatcher(cfg, dedup)
+
+	// firstRun should be false since dedup has state for this repo.
+	if w.firstRun["org/repo"] {
+		t.Error("expected firstRun to be false when dedup has persisted state")
 	}
 }

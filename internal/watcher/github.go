@@ -15,20 +15,38 @@ import (
 type GitHubWatcher struct {
 	client *github.Client
 	config *WatchConfig
+	dedup  DedupStore
 
-	// lastSeen tracks the most recent event timestamp per repo to avoid duplicates.
+	// firstRun tracks whether a repo has completed its initial poll.
+	// On the first poll we mark events as seen without pitching them.
 	mu       sync.Mutex
-	lastSeen map[string]time.Time
+	firstRun map[string]bool
 }
 
 // NewGitHubWatcher creates a watcher from the given config.
-func NewGitHubWatcher(cfg *WatchConfig) *GitHubWatcher {
+// If dedup is nil, a default in-memory store is used.
+func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) *GitHubWatcher {
 	client := github.NewClient(nil).WithAuthToken(cfg.GitHub.Token)
+
+	if dedup == nil {
+		dedup, _ = NewMemoryDedupStore(DefaultDedupConfig(), "")
+	}
+
+	firstRun := make(map[string]bool, len(cfg.GitHub.Repos))
+	for _, repo := range cfg.GitHub.Repos {
+		// If the dedup store already has state for this repo (loaded from
+		// persistence), skip the first-run suppression.
+		stats := dedup.Stats()
+		if stats[repo.FullName()] == 0 {
+			firstRun[repo.FullName()] = true
+		}
+	}
 
 	return &GitHubWatcher{
 		client:   client,
 		config:   cfg,
-		lastSeen: make(map[string]time.Time),
+		dedup:    dedup,
+		firstRun: firstRun,
 	}
 }
 
@@ -104,39 +122,48 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 		return
 	}
 
+	// On first run for a repo with no persisted state, mark all current
+	// events as seen without pitching them to avoid flooding.
 	w.mu.Lock()
-	cutoff := w.lastSeen[repo.FullName()]
-	var newest time.Time
+	isFirstRun := w.firstRun[repo.FullName()]
+	if isFirstRun {
+		w.firstRun[repo.FullName()] = false
+	}
 	w.mu.Unlock()
+
+	if isFirstRun {
+		for _, event := range events {
+			w.dedup.Mark(repo.FullName(), event.GetID())
+		}
+		logger.Info("first run: marked existing events as seen", "count", len(events))
+		return
+	}
 
 	var newCount int
 	for _, event := range events {
-		ts := event.GetCreatedAt().Time
-		if !ts.After(cutoff) {
+		eventID := event.GetID()
+
+		// Skip already-seen events.
+		if w.dedup.Seen(repo.FullName(), eventID) {
 			continue
-		}
-		if ts.After(newest) {
-			newest = ts
 		}
 
 		kind := eventTypeToKind(event.GetType())
 		if kind == "" || !repo.WatchesEvent(kind) {
+			// Mark as seen even if we don't care about this event type,
+			// so we don't re-evaluate it on every poll.
+			w.dedup.Mark(repo.FullName(), eventID)
 			continue
 		}
 
 		msg := eventToMessage(event, repo)
 		select {
 		case msgs <- msg:
+			w.dedup.Mark(repo.FullName(), eventID)
 			newCount++
 		case <-ctx.Done():
 			return
 		}
-	}
-
-	if newest.After(cutoff) {
-		w.mu.Lock()
-		w.lastSeen[repo.FullName()] = newest
-		w.mu.Unlock()
 	}
 
 	if newCount > 0 {
