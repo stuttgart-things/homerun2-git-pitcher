@@ -1,0 +1,49 @@
+##
+## homerun2-git-pitcher watch profile
+##
+## Defines which GitHub repositories to watch and what events to track.
+## Token supports "env:VAR_NAME" syntax to read from environment variable.
+##
+
+github:
+  token: env:GITHUB_TOKEN
+
+  repos:
+    # homerun2 ecosystem repos
+    - owner: stuttgart-things
+      name: homerun2-led-catcher
+      interval: 5m
+      events:
+        - push
+        - pull_request
+        - release
+        - workflow_run
+
+    - owner: stuttgart-things
+      name: homerun2-core-catcher
+      interval: 5m
+      events:
+        - push
+        - pull_request
+        - release
+
+    - owner: stuttgart-things
+      name: homerun2-omni-pitcher
+      interval: 5m
+      events:
+        - push
+        - release
+
+    - owner: stuttgart-things
+      name: homerun2-light-catcher
+      interval: 10m
+      events:
+        - push
+        - release
+
+    # External repos (longer interval to save rate limit)
+    - owner: hzeller
+      name: rpi-rgb-led-matrix
+      interval: 30m
+      events:
+        - release
