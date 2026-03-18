@@ -1,6 +1,6 @@
+version: "2"
+
 run:
-  build-tags:
-    - exclude
   modules-download-mode: readonly
 
 issues:
