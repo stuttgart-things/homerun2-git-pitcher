@@ -2,10 +2,8 @@ site_name: homerun2-git-pitcher
 site_description: Active GitHub repository watcher for homerun2 — polls GitHub API and pitches events to Redis Streams
 nav:
   - Home: index.md
-
   - API Usage: api-usage.md
-
-
+  - Development: development.md
   - Deployment: deployment.md
   - CI/CD: cicd.md
 plugins:
