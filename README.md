@@ -1,5 +1,7 @@
 # homerun2-git-pitcher
 
+<img src="https://github.com/stuttgart-things/docs/blob/main/hugo/homerun2-git-pitcher.png?raw=true" alt="homerun2-git-pitcher logo" width="300">
+
 Active GitHub repository watcher for homerun2 — polls GitHub API and pitches events to Redis Streams.
 
 [![Build & Test](https://github.com/stuttgart-things/homerun2-git-pitcher/actions/workflows/build-test.yaml/badge.svg)](https://github.com/stuttgart-things/homerun2-git-pitcher/actions/workflows/build-test.yaml)
