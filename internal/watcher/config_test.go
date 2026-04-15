@@ -133,3 +133,27 @@ func TestLoadWatchConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveStream(t *testing.T) {
+	cfg := &WatchConfig{Stream: "default-stream"}
+	cases := []struct {
+		name    string
+		cfgTop  string
+		repo    RepoConfig
+		want    string
+	}{
+		{"repo override wins", "default-stream", RepoConfig{Owner: "o", Name: "r", Stream: "releases"}, "releases"},
+		{"top-level fallback", "default-stream", RepoConfig{Owner: "o", Name: "r"}, "default-stream"},
+		{"neither set returns empty", "", RepoConfig{Owner: "o", Name: "r"}, ""},
+		{"empty repo override falls through", "top", RepoConfig{Owner: "o", Name: "r", Stream: ""}, "top"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.Stream = tc.cfgTop
+			got := cfg.ResolveStream(tc.repo)
+			if got != tc.want {
+				t.Errorf("ResolveStream: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

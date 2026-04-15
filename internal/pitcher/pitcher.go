@@ -15,8 +15,10 @@ import (
 )
 
 // Pitcher defines the interface for message delivery backends.
+// streamOverride, if non-empty, directs the message to a specific Redis stream
+// instead of the backend's default. File/other backends may ignore it.
 type Pitcher interface {
-	Pitch(msg homerun.Message) (objectID, streamID string, err error)
+	Pitch(msg homerun.Message, streamOverride string) (objectID, streamID string, err error)
 }
 
 // RedisPitcher enqueues messages into Redis Streams.
@@ -38,8 +40,14 @@ func (p *RedisPitcher) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (p *RedisPitcher) Pitch(msg homerun.Message) (string, string, error) {
-	objectID, streamID, err := homerun.EnqueueMessageInRedisStreams(msg, p.Config)
+func (p *RedisPitcher) Pitch(msg homerun.Message, streamOverride string) (string, string, error) {
+	var objectID, streamID string
+	var err error
+	if streamOverride != "" {
+		objectID, streamID, err = homerun.EnqueueMessageInRedisStreams(msg, p.Config, streamOverride)
+	} else {
+		objectID, streamID, err = homerun.EnqueueMessageInRedisStreams(msg, p.Config)
+	}
 	if err != nil {
 		return "", "", fmt.Errorf("failed to enqueue message to Redis stream: %w", err)
 	}
@@ -52,7 +60,8 @@ type FilePitcher struct {
 	mu   sync.Mutex
 }
 
-func (p *FilePitcher) Pitch(msg homerun.Message) (string, string, error) {
+func (p *FilePitcher) Pitch(msg homerun.Message, streamOverride string) (string, string, error) {
+	_ = streamOverride
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

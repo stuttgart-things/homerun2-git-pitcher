@@ -10,6 +10,9 @@ import (
 
 // WatchConfig is the top-level configuration for the git-pitcher watcher.
 type WatchConfig struct {
+	// Stream is the default Redis stream name for all published events.
+	// If empty, the pitcher falls back to REDIS_STREAM / its hardcoded default.
+	Stream string       `yaml:"stream"`
 	GitHub GitHubConfig `yaml:"github"`
 }
 
@@ -26,6 +29,17 @@ type RepoConfig struct {
 	Name     string        `yaml:"name"`
 	Interval time.Duration `yaml:"interval"`
 	Events   []EventKind   `yaml:"events"`
+	// Stream overrides the top-level WatchConfig.Stream for this repo.
+	Stream string `yaml:"stream"`
+}
+
+// ResolveStream returns the stream for events from this repo.
+// Precedence: repo-level override → top-level default → "" (caller falls back).
+func (c *WatchConfig) ResolveStream(repo RepoConfig) string {
+	if repo.Stream != "" {
+		return repo.Stream
+	}
+	return c.Stream
 }
 
 // EventKind represents a type of GitHub event to watch.

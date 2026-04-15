@@ -49,7 +49,7 @@ func NewPitchHandler(p pitcher.Pitcher) http.HandlerFunc {
 			msg.System = "homerun2-git-pitcher"
 		}
 
-		objectID, streamID, err := p.Pitch(msg)
+		objectID, streamID, err := p.Pitch(msg, "")
 		if err != nil {
 			slog.Error("failed to pitch message", "error", err)
 			respondWithError(w, http.StatusServiceUnavailable, "Failed to enqueue message")

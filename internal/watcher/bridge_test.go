@@ -8,42 +8,44 @@ import (
 	homerun "github.com/stuttgart-things/homerun-library/v3"
 )
 
-// mockPitcher records all pitched messages.
+// mockPitcher records all pitched messages and their stream overrides.
 type mockPitcher struct {
 	mu       sync.Mutex
 	messages []homerun.Message
+	streams  []string
 }
 
-func (m *mockPitcher) Pitch(msg homerun.Message) (string, string, error) {
+func (m *mockPitcher) Pitch(msg homerun.Message, streamOverride string) (string, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, msg)
+	m.streams = append(m.streams, streamOverride)
 	return "obj-1", "stream-1", nil
 }
 
-// mockWatcher sends predefined messages then closes the channel.
+// mockWatcher sends predefined events then closes the channel.
 type mockWatcher struct {
-	msgs []homerun.Message
+	events []PitchEvent
 }
 
-func (m *mockWatcher) Watch(_ context.Context) (<-chan homerun.Message, error) {
-	ch := make(chan homerun.Message, len(m.msgs))
-	for _, msg := range m.msgs {
-		ch <- msg
+func (m *mockWatcher) Watch(_ context.Context) (<-chan PitchEvent, error) {
+	ch := make(chan PitchEvent, len(m.events))
+	for _, ev := range m.events {
+		ch <- ev
 	}
 	close(ch)
 	return ch, nil
 }
 
 func TestBridge_Run(t *testing.T) {
-	testMsgs := []homerun.Message{
-		{Title: "Push to main on org/repo", Severity: "info", System: "homerun2-git-pitcher"},
-		{Title: "PR #42: Add feature (opened)", Severity: "info", System: "homerun2-git-pitcher"},
-		{Title: "Release v1.0.0 on org/repo", Severity: "success", System: "homerun2-git-pitcher"},
+	testEvents := []PitchEvent{
+		{Message: homerun.Message{Title: "Push to main on org/repo", Severity: "info", System: "homerun2-git-pitcher"}},
+		{Message: homerun.Message{Title: "PR #42: Add feature (opened)", Severity: "info", System: "homerun2-git-pitcher"}},
+		{Message: homerun.Message{Title: "Release v1.0.0 on org/repo", Severity: "success", System: "homerun2-git-pitcher"}, Stream: "releases"},
 	}
 
 	p := &mockPitcher{}
-	w := &mockWatcher{msgs: testMsgs}
+	w := &mockWatcher{events: testEvents}
 	dedup, _ := NewMemoryDedupStore(DefaultDedupConfig(), "")
 
 	bridge := &Bridge{
@@ -67,5 +69,11 @@ func TestBridge_Run(t *testing.T) {
 	}
 	if p.messages[2].Severity != "success" {
 		t.Errorf("expected severity 'success' for release, got %q", p.messages[2].Severity)
+	}
+	if p.streams[0] != "" {
+		t.Errorf("expected empty stream override for push, got %q", p.streams[0])
+	}
+	if p.streams[2] != "releases" {
+		t.Errorf("expected stream override 'releases' for release, got %q", p.streams[2])
 	}
 }
