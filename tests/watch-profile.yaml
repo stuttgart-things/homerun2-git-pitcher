@@ -5,6 +5,10 @@
 ## Token supports "env:VAR_NAME" syntax to read from environment variable.
 ##
 
+# Top-level default Redis stream for all published events.
+# Per-repo `stream:` overrides this. Falls back to REDIS_STREAM if unset.
+stream: homerun
+
 github:
   token: env:GITHUB_TOKEN
 
@@ -41,9 +45,12 @@ github:
         - push
         - release
 
-    # External repos (longer interval to save rate limit)
+    # External repos (longer interval to save rate limit).
+    # Releases from upstream favorites go to their own stream so a notification
+    # consumer can subscribe without seeing push/CI traffic.
     - owner: hzeller
       name: rpi-rgb-led-matrix
       interval: 30m
       events:
         - release
+      stream: releases

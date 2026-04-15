@@ -89,6 +89,17 @@ func main() {
 
 		ghWatcher := watcher.NewGitHubWatcher(watchCfg, dedup)
 
+		overrides := map[string]string{}
+		for _, repo := range watchCfg.GitHub.Repos {
+			if repo.Stream != "" {
+				overrides[repo.FullName()] = repo.Stream
+			}
+		}
+		slog.Info("stream routing resolved",
+			"default", watchCfg.Stream,
+			"overrides", overrides,
+		)
+
 		// Wire rate limit to health endpoint.
 		rateLimitProvider = func() handlers.RateLimitInfo {
 			s := ghWatcher.RateLimit.Status()

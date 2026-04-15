@@ -55,8 +55,8 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) *GitHubWatcher {
 // Watch starts a goroutine per configured repo that polls for events at the
 // configured interval. Events are converted to homerun Messages and sent on
 // the returned channel. Polling stops when ctx is cancelled.
-func (w *GitHubWatcher) Watch(ctx context.Context) (<-chan homerun.Message, error) {
-	msgs := make(chan homerun.Message, 100)
+func (w *GitHubWatcher) Watch(ctx context.Context) (<-chan PitchEvent, error) {
+	msgs := make(chan PitchEvent, 100)
 
 	var wg sync.WaitGroup
 	for _, repo := range w.config.GitHub.Repos {
@@ -76,7 +76,7 @@ func (w *GitHubWatcher) Watch(ctx context.Context) (<-chan homerun.Message, erro
 }
 
 // pollRepo polls a single repo at its configured interval.
-func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan<- homerun.Message) {
+func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan<- PitchEvent) {
 	logger := slog.With("repo", repo.FullName())
 	logger.Info("starting watcher", "interval", repo.Interval, "events", repo.Events)
 
@@ -102,7 +102,7 @@ func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan
 }
 
 // fetchAndSend fetches recent events from GitHub and sends new ones as messages.
-func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs chan<- homerun.Message) {
+func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs chan<- PitchEvent) {
 	logger := slog.With("repo", repo.FullName())
 
 	events, resp, err := w.client.Activity.ListRepositoryEvents(ctx, repo.Owner, repo.Name, &github.ListOptions{
@@ -160,7 +160,7 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 
 		msg := eventToMessage(event, repo)
 		select {
-		case msgs <- msg:
+		case msgs <- PitchEvent{Message: msg, Stream: w.config.ResolveStream(repo)}:
 			w.dedup.Mark(repo.FullName(), eventID)
 			newCount++
 		case <-ctx.Done():
