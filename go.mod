@@ -6,7 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/google/go-github/v68 v68.0.0
-	github.com/redis/go-redis/v9 v9.18.0
+	github.com/redis/go-redis/v9 v9.19.0
 	github.com/stuttgart-things/homerun-library/v3 v3.1.0
 	gopkg.in/yaml.v3 v3.0.1
 )
