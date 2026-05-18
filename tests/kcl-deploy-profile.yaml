@@ -7,6 +7,15 @@ config.redisPassword: changeme # pragma: allowlist secret
 config.authToken: changeme # pragma: allowlist secret
 config.githubToken: changeme # pragma: allowlist secret
 config.dedupStatePath: /data/dedup-state.json
+# HTTPRoute lives in the same kustomize apply as the Service so they land
+# atomically — avoids the Cilium gateway controller caching BackendNotFound
+# when the HTTPRoute is created before its Service (stuttgart-things/argocd#116).
+# Consumers without a Gateway API can drop the HTTPRoute via a kustomize delete
+# patch; the homerun2-install chart patches the parentRef + hostname per env.
+config.httpRouteEnabled: true
+config.httpRouteParentRefName: homerun2-dev-gateway
+config.httpRouteParentRefNamespace: default
+config.httpRouteHostname: homerun2-git-pitcher.example.com
 config.watchConfigYaml: |
   github:
     token: env:GITHUB_TOKEN

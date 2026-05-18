@@ -22,8 +22,15 @@ _httproute = {
             }
     }
     spec: {
+        # group + kind are admission-webhook defaults on parentRefs; rendering
+        # them explicitly avoids drift on every reconcile (Gateway controller
+        # adds them in, ArgoCD compares chart-rendered against live and flags
+        # OutOfSync otherwise). Same shape as stuttgart-things/argocd#114
+        # fix for the standalone httproute chart.
         parentRefs: [
             {
+                group: "gateway.networking.k8s.io"
+                kind: "Gateway"
                 name: _config.httpRouteParentRefName
                 if _config.httpRouteParentRefNamespace:
                     namespace: _config.httpRouteParentRefNamespace
@@ -41,10 +48,15 @@ _httproute = {
                         }
                     }
                 ]
+                # group + kind + weight are admission defaults on backendRefs;
+                # rendering them explicitly prevents the same drift.
                 backendRefs: [
                     {
+                        group: ""
+                        kind: "Service"
                         name: _config.name
                         port: _config.servicePort
+                        weight: 1
                     }
                 ]
             }
