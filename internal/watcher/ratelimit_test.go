@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v68/github"
+	"github.com/google/go-github/v87/github"
 )
 
 func TestRateLimitMonitor_Update(t *testing.T) {

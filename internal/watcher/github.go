@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/go-github/v68/github"
+	"github.com/google/go-github/v87/github"
 	homerun "github.com/stuttgart-things/homerun-library/v3"
 )
 
@@ -26,8 +26,11 @@ type GitHubWatcher struct {
 
 // NewGitHubWatcher creates a watcher from the given config.
 // If dedup is nil, a default in-memory store is used.
-func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) *GitHubWatcher {
-	client := github.NewClient(nil).WithAuthToken(cfg.GitHub.Token)
+func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) (*GitHubWatcher, error) {
+	client, err := github.NewClient(github.WithAuthToken(cfg.GitHub.Token))
+	if err != nil {
+		return nil, fmt.Errorf("create github client: %w", err)
+	}
 
 	if dedup == nil {
 		dedup, _ = NewMemoryDedupStore(DefaultDedupConfig(), "")
@@ -49,7 +52,7 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) *GitHubWatcher {
 		dedup:     dedup,
 		RateLimit: NewRateLimitMonitor(DefaultBackoffThreshold),
 		firstRun:  firstRun,
-	}
+	}, nil
 }
 
 // Watch starts a goroutine per configured repo that polls for events at the
