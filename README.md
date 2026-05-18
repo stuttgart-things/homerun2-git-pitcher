@@ -53,6 +53,21 @@ github:
 
 **Supported event types:** `push`, `pull_request`, `release`, `workflow_run`
 
+**GitHub token permissions:** the watcher only calls `Activity.ListRepositoryEvents` against the configured repos. For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
+
+If you prefer to be explicit:
+
+- **Classic PAT:** `public_repo` scope (public repos) or `repo` (also covers private).
+- **Fine-grained PAT** (recommended):
+  - Resource owner: the org whose repos you watch.
+  - Repository access: all (or just the watched ones).
+  - Permissions — repository:
+    - `Metadata`: Read-only — mandatory for any fine-grained PAT.
+    - `Contents`: Read-only — needed for the events API.
+    - `Actions`: Read-only — only required if you want `workflow_run` events on private repos.
+
+No write permissions, no org/user permissions.
+
 ### Run with watcher
 
 ```bash
