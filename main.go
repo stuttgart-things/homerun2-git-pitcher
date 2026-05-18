@@ -87,7 +87,11 @@ func main() {
 			os.Exit(1)
 		}
 
-		ghWatcher := watcher.NewGitHubWatcher(watchCfg, dedup)
+		ghWatcher, err := watcher.NewGitHubWatcher(watchCfg, dedup)
+		if err != nil {
+			slog.Error("failed to create github watcher", "error", err)
+			os.Exit(1)
+		}
 
 		overrides := map[string]string{}
 		for _, repo := range watchCfg.GitHub.Repos {

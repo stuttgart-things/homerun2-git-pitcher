@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v68/github"
+	"github.com/google/go-github/v87/github"
 )
 
 func TestEventTypeToKind(t *testing.T) {
@@ -176,7 +176,10 @@ func TestNewGitHubWatcher(t *testing.T) {
 		},
 	}
 
-	w := NewGitHubWatcher(cfg, nil)
+	w, err := NewGitHubWatcher(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewGitHubWatcher: %v", err)
+	}
 
 	if w.client == nil {
 		t.Error("expected non-nil client")
@@ -207,7 +210,10 @@ func TestNewGitHubWatcher_WithPersistedDedup(t *testing.T) {
 	dedup, _ := NewMemoryDedupStore(DefaultDedupConfig(), "")
 	dedup.Mark("org/repo", "existing-event")
 
-	w := NewGitHubWatcher(cfg, dedup)
+	w, err := NewGitHubWatcher(cfg, dedup)
+	if err != nil {
+		t.Fatalf("NewGitHubWatcher: %v", err)
+	}
 
 	// firstRun should be false since dedup has state for this repo.
 	if w.firstRun["org/repo"] {
