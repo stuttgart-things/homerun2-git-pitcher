@@ -7,7 +7,10 @@
 
 # Top-level default Redis stream for all published events.
 # Per-repo `stream:` overrides this. Falls back to REDIS_STREAM if unset.
-stream: homerun
+# `messages` is the project-wide homerun2 stream — keep this aligned with
+# the rest of the stack so consumers (core-catcher etc.) read what
+# git-pitcher writes without a per-deployment override.
+stream: messages
 
 github:
   token: env:GITHUB_TOKEN

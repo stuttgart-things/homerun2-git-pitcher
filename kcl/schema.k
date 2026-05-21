@@ -23,7 +23,7 @@ schema GitPitcher:
     # Redis
     redisAddr: str = "redis-stack.homerun2.svc.cluster.local"
     redisPort: int | str = "6379"
-    redisStream: str = "homerun"
+    redisStream: str = "messages"
     redisPassword: str = ""
 
     # Auth

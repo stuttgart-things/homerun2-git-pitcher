@@ -2,7 +2,7 @@ config.image: ghcr.io/stuttgart-things/homerun2-git-pitcher:v0.4.0
 config.namespace: homerun2
 config.redisAddr: redis-stack.homerun2.svc.cluster.local
 config.redisPort: "6379"
-config.redisStream: homerun
+config.redisStream: messages
 config.redisPassword: changeme # pragma: allowlist secret
 config.authToken: changeme # pragma: allowlist secret
 config.githubToken: changeme # pragma: allowlist secret
