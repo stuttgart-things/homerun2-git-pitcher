@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
-	github.com/google/go-github/v87 v87.0.0
+	github.com/google/go-github/v88 v88.0.0
 	github.com/redis/go-redis/v9 v9.19.0
 	github.com/stuttgart-things/homerun-library/v3 v3.1.0
 	gopkg.in/yaml.v3 v3.0.1
