@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v87/github"
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
 // GitHubWatcher implements GitWatcher by polling the GitHub API.
@@ -211,7 +211,7 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 		Timestamp: event.GetCreatedAt().Format(time.RFC3339),
 		System:    "homerun2-git-pitcher",
 		Tags:      fmt.Sprintf("github,%s,%s", kind, repo.FullName()),
-		Url:       url,
+		URL:       url,
 	}
 }
 

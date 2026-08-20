@@ -58,6 +58,6 @@ func (b *Bridge) pitch(ev PitchEvent) {
 		"streamID", streamID,
 		"streamOverride", ev.Stream,
 		"tags", msg.Tags,
-		"url", msg.Url,
+		"url", msg.URL,
 	)
 }

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
 // TokenAuthMiddleware validates bearer token authentication

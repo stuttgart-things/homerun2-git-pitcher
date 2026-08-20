@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
 // mockPitcher records all pitched messages and their stream overrides.

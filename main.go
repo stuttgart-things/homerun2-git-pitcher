@@ -19,7 +19,7 @@ import (
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/pitcher"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/watcher"
 
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
 var (
