@@ -3,7 +3,7 @@ package watcher
 import (
 	"context"
 
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
 // PitchEvent is a message emitted by a watcher together with an optional

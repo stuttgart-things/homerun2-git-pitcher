@@ -52,8 +52,8 @@ func TestEventToMessage_Push(t *testing.T) {
 	if msg.Severity != "info" {
 		t.Errorf("expected severity 'info', got %q", msg.Severity)
 	}
-	if msg.Url != "https://github.com/org/repo/compare/abc...def" {
-		t.Errorf("unexpected url: %s", msg.Url)
+	if msg.URL != "https://github.com/org/repo/compare/abc...def" {
+		t.Errorf("unexpected url: %s", msg.URL)
 	}
 }
 
@@ -81,8 +81,8 @@ func TestEventToMessage_PullRequest(t *testing.T) {
 	if !strings.Contains(msg.Title, "opened") {
 		t.Errorf("expected action in title, got %q", msg.Title)
 	}
-	if msg.Url != "https://github.com/org/repo/pull/42" {
-		t.Errorf("unexpected url: %s", msg.Url)
+	if msg.URL != "https://github.com/org/repo/pull/42" {
+		t.Errorf("unexpected url: %s", msg.URL)
 	}
 }
 

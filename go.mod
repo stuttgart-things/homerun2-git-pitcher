@@ -7,12 +7,12 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/google/go-github/v87 v87.0.0
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/stuttgart-things/homerun-library/v3 v3.2.0
+	github.com/stuttgart-things/homerun-library/v4 v4.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	github.com/RediSearch/redisearch-go v1.1.1 // indirect
+	github.com/RediSearch/redisearch-go/v2 v2.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468 // indirect
