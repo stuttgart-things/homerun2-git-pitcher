@@ -163,6 +163,7 @@ The watcher tracks GitHub API rate limits and automatically backs off when remai
 | `REDIS_PORT` | Redis port | `6379` |
 | `REDIS_PASSWORD` | Redis password | (empty) |
 | `REDIS_STREAM` | Stream name | `messages` |
+| `REDIS_STARTUP_TIMEOUT` | How long startup retries Redis before exiting (Go duration); SIGINT/SIGTERM ends the wait with exit 0 | `120s` |
 
 ### Watcher
 
