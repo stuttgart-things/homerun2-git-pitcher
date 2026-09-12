@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/banner"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/config"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/handlers"
@@ -39,7 +38,6 @@ func main() {
 		"go", runtime.Version(),
 	)
 
-
 	port := homerun.GetEnv("PORT", "8080")
 	mode := homerun.GetEnv("PITCHER_MODE", "redis")
 
@@ -52,13 +50,29 @@ func main() {
 	default:
 		redisConfig := config.LoadRedisConfig()
 		rp := &pitcher.RedisPitcher{Config: redisConfig}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := rp.HealthCheck(ctx); err != nil {
-			slog.Error("redis health check failed", "error", err)
-			cancel()
+
+		// One 5s health check used to end the process when Redis was still
+		// starting, and the pod crashlooped until it answered (#50). Wait with
+		// bounded backoff for REDIS_STARTUP_TIMEOUT (default 120s) instead. A
+		// SIGINT/SIGTERM ends the wait with exit 0; the signal context is
+		// released right after, so the shutdown handling below is unchanged.
+		startupTimeout, err := homerun.LoadRedisStartupTimeout()
+		if err != nil {
+			slog.Error("invalid configuration", "error", err)
 			os.Exit(1)
 		}
-		cancel()
+		waitCtx, stopWait := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		err = homerun.WaitForRedisContext(waitCtx, redisConfig, startupTimeout)
+		interrupted := waitCtx.Err() != nil
+		stopWait()
+		if interrupted {
+			slog.Info("shutdown requested while waiting for redis")
+			os.Exit(0)
+		}
+		if err != nil {
+			slog.Error("redis not reachable", "error", err, "addr", redisConfig.Addr, "port", redisConfig.Port, "startup_timeout", startupTimeout.String())
+			os.Exit(1)
+		}
 		p = rp
 		slog.Info("pitcher mode: redis", "addr", redisConfig.Addr, "port", redisConfig.Port, "stream", redisConfig.Stream)
 	}

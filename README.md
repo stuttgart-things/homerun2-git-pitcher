@@ -168,6 +168,7 @@ curl -s http://localhost:8080/health | jq .
 | `REDIS_PORT` | Redis server port | `6379` |
 | `REDIS_PASSWORD` | Redis password | (empty) |
 | `REDIS_STREAM` | Redis stream name | `messages` |
+| `REDIS_STARTUP_TIMEOUT` | How long startup retries Redis before exiting (Go duration); SIGINT/SIGTERM ends the wait with exit 0 | `120s` |
 
 ### Watcher
 
