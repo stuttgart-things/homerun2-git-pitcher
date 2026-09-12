@@ -19,7 +19,7 @@ func TestMemoryDedupStore_SeenAndMark(t *testing.T) {
 		t.Error("expected evt-1 to not be seen")
 	}
 
-	s.Mark(repo, "evt-1")
+	s.Mark(repo, "evt-1", time.Now())
 	if !s.Seen(repo, "evt-1") {
 		t.Error("expected evt-1 to be seen after Mark")
 	}
@@ -38,10 +38,10 @@ func TestMemoryDedupStore_MaxEventsEviction(t *testing.T) {
 	}
 
 	repo := "org/repo"
-	s.Mark(repo, "evt-1")
-	s.Mark(repo, "evt-2")
-	s.Mark(repo, "evt-3")
-	s.Mark(repo, "evt-4") // should evict evt-1
+	s.Mark(repo, "evt-1", time.Now())
+	s.Mark(repo, "evt-2", time.Now())
+	s.Mark(repo, "evt-3", time.Now())
+	s.Mark(repo, "evt-4", time.Now()) // should evict evt-1
 
 	if s.Seen(repo, "evt-1") {
 		t.Error("expected evt-1 to be evicted")
@@ -64,13 +64,13 @@ func TestMemoryDedupStore_RetentionEviction(t *testing.T) {
 	}
 
 	repo := "org/repo"
-	s.Mark(repo, "old-evt")
+	s.Mark(repo, "old-evt", time.Now())
 
 	// Wait for the entry to expire.
 	time.Sleep(150 * time.Millisecond)
 
 	// Mark a new event to trigger eviction.
-	s.Mark(repo, "new-evt")
+	s.Mark(repo, "new-evt", time.Now())
 
 	if s.Seen(repo, "old-evt") {
 		t.Error("expected old-evt to be evicted by retention")
@@ -89,9 +89,9 @@ func TestMemoryDedupStore_Persistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s1.Mark("org/repo", "evt-1")
-	s1.Mark("org/repo", "evt-2")
-	s1.Mark("other/repo", "evt-a")
+	s1.Mark("org/repo", "evt-1", time.Now())
+	s1.Mark("org/repo", "evt-2", time.Now())
+	s1.Mark("other/repo", "evt-a", time.Now())
 
 	if err := s1.Flush(); err != nil {
 		t.Fatalf("flush failed: %v", err)
@@ -130,7 +130,7 @@ func TestMemoryDedupStore_PersistenceFilterExpired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s1.Mark("org/repo", "old-evt")
+	s1.Mark("org/repo", "old-evt", time.Now())
 	if err := s1.Flush(); err != nil {
 		t.Fatalf("flush failed: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestMemoryDedupStore_FlushNoPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s.Mark("org/repo", "evt-1")
+	s.Mark("org/repo", "evt-1", time.Now())
 
 	// Flush with no path should be a no-op.
 	if err := s.Flush(); err != nil {
@@ -168,9 +168,9 @@ func TestMemoryDedupStore_Stats(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	s.Mark("org/repo-a", "1")
-	s.Mark("org/repo-a", "2")
-	s.Mark("org/repo-b", "3")
+	s.Mark("org/repo-a", "1", time.Now())
+	s.Mark("org/repo-a", "2", time.Now())
+	s.Mark("org/repo-b", "3", time.Now())
 
 	stats := s.Stats()
 	if stats["org/repo-a"] != 2 {
@@ -190,7 +190,7 @@ func TestMemoryDedupStore_DefaultConfig(t *testing.T) {
 
 	// Mark more than default max (1000) to verify the limit works.
 	for i := range 1005 {
-		s.Mark("org/repo", fmt.Sprintf("evt-%d", i))
+		s.Mark("org/repo", fmt.Sprintf("evt-%d", i), time.Now())
 	}
 
 	stats := s.Stats()

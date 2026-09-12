@@ -175,7 +175,15 @@ curl -s http://localhost:8080/health | jq .
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WATCH_CONFIG` | Path to YAML watch profile | (disabled) |
-| `DEDUP_STATE_FILE` | Path to persist dedup state | (in-memory only) |
+| `DEDUP_STATE_FILE` | File mode only: path to persist dedup state. In redis mode the seen set is kept in Redis (see below) | (in-memory only) |
+
+#### Event deduplication
+
+GitHub's events endpoint lists a repo's last 30 events for as long as they stay in that window, often days. The watcher pitches an event only once:
+
+- **Seen set per repo, 24h from the event's creation time.** An event older than 24h is never pitched, even if unseen. Its entry may already have expired, so "unseen" no longer means "new". Before, retention counted from when an event was *seen*, and the next new event after 24h re-pitched every older event still on the page (#34).
+- **Redis mode:** the seen set is a sorted set `homerun2-git-pitcher:seen:<stream>:<owner>/<repo>`, scored by event creation time, trimmed to 1000 entries and expiring 25h after its last write. It survives container restarts and pod reschedules. Events created while the pitcher was down are still pitched. If Redis is unreachable, deduplication continues in memory.
+- **First start with no state for a repo:** the current events are marked as seen without being pitched.
 
 ### Logging
 
