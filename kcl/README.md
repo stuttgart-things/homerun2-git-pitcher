@@ -66,7 +66,7 @@ All values are set via `-D 'config.<key>=<value>'` or a YAML profile file (`-Y`)
 | `authToken` | (empty) | Bearer token for `/pitch` endpoint |
 | `githubToken` | (empty) | GitHub PAT (creates Secret) |
 | `watchConfigYaml` | (empty) | Watch profile YAML (creates ConfigMap) |
-| `dedupStatePath` | `/data/dedup-state.json` | Dedup state file path |
+| `dedupStatePath` | `/data/dedup-state.json` | Dedup state file path (file mode only; the deployment runs redis mode, where the seen set lives in Redis) |
 | `httpRouteEnabled` | `false` | Enable Gateway API HTTPRoute |
 | `httpRouteHostname` | (empty) | HTTPRoute hostname |
 | `httpRouteParentRefName` | (empty) | Gateway name |

@@ -22,6 +22,8 @@ type GitHubWatcher struct {
 	// On the first poll we mark events as seen without pitching them.
 	mu       sync.Mutex
 	firstRun map[string]bool
+
+	now func() time.Time
 }
 
 // NewGitHubWatcher creates a watcher from the given config.
@@ -52,6 +54,7 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) (*GitHubWatcher, error
 		dedup:     dedup,
 		RateLimit: NewRateLimitMonitor(DefaultBackoffThreshold),
 		firstRun:  firstRun,
+		now:       time.Now,
 	}, nil
 }
 
@@ -127,6 +130,13 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 		return
 	}
 
+	w.processEvents(ctx, repo, events, msgs)
+}
+
+// processEvents pitches the events of one poll that have not been seen yet.
+func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, events []*github.Event, msgs chan<- PitchEvent) {
+	logger := slog.With("repo", repo.FullName())
+
 	// On first run for a repo with no persisted state, mark all current
 	// events as seen without pitching them to avoid flooding.
 	w.mu.Lock()
@@ -138,13 +148,14 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 
 	if isFirstRun {
 		for _, event := range events {
-			w.dedup.Mark(repo.FullName(), event.GetID())
+			w.dedup.Mark(repo.FullName(), event.GetID(), w.createdAt(event))
 		}
 		logger.Info("first run: marked existing events as seen", "count", len(events))
 		return
 	}
 
-	var newCount int
+	cutoff := w.now().Add(-w.dedup.Retention())
+	var newCount, expiredCount int
 	for _, event := range events {
 		eventID := event.GetID()
 
@@ -153,18 +164,27 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 			continue
 		}
 
+		// GitHub keeps listing the last 30 events for days. Once an event is
+		// older than the retention window its entry may be gone, so "not
+		// seen" no longer means new: never pitch it (#34).
+		createdAt := w.createdAt(event)
+		if createdAt.Before(cutoff) {
+			expiredCount++
+			continue
+		}
+
 		kind := eventTypeToKind(event.GetType())
 		if kind == "" || !repo.WatchesEvent(kind) {
 			// Mark as seen even if we don't care about this event type,
 			// so we don't re-evaluate it on every poll.
-			w.dedup.Mark(repo.FullName(), eventID)
+			w.dedup.Mark(repo.FullName(), eventID, createdAt)
 			continue
 		}
 
 		msg := eventToMessage(event, repo)
 		select {
 		case msgs <- PitchEvent{Message: msg, Stream: w.config.ResolveStream(repo)}:
-			w.dedup.Mark(repo.FullName(), eventID)
+			w.dedup.Mark(repo.FullName(), eventID, createdAt)
 			newCount++
 		case <-ctx.Done():
 			return
@@ -174,6 +194,17 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 	if newCount > 0 {
 		logger.Info("new events detected", "count", newCount)
 	}
+	if expiredCount > 0 {
+		logger.Debug("skipped unseen events older than the dedup retention", "count", expiredCount, "retention", w.dedup.Retention())
+	}
+}
+
+// createdAt returns the event's creation time, or now if GitHub sent none.
+func (w *GitHubWatcher) createdAt(event *github.Event) time.Time {
+	if t := event.GetCreatedAt().Time; !t.IsZero() {
+		return t
+	}
+	return w.now()
 }
 
 // eventTypeToKind maps GitHub event type strings to EventKind.

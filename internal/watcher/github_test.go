@@ -208,7 +208,7 @@ func TestNewGitHubWatcher_WithPersistedDedup(t *testing.T) {
 
 	// Pre-populate dedup store to simulate persisted state.
 	dedup, _ := NewMemoryDedupStore(DefaultDedupConfig(), "")
-	dedup.Mark("org/repo", "existing-event")
+	dedup.Mark("org/repo", "existing-event", time.Now())
 
 	w, err := NewGitHubWatcher(cfg, dedup)
 	if err != nil {

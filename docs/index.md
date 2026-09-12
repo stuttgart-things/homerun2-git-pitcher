@@ -48,7 +48,7 @@ Messages are written to `pitched.log` as JSON lines.
 ## Features
 
 - **GitHub event polling** with configurable per-repo intervals
-- **Event deduplication** with file-based persistence across restarts
+- **Event deduplication** kept in Redis (redis mode) or a state file (file mode), so restarts don't re-pitch
 - **Rate limit monitoring** with automatic backoff when approaching limits
 - **Rich event mapping** — pushes, PRs, releases, workflow runs → structured messages
 - **Dual mode** — watcher + HTTP API run side by side

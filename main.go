@@ -18,6 +18,7 @@ import (
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/pitcher"
 	"github.com/stuttgart-things/homerun2-git-pitcher/internal/watcher"
 
+	"github.com/redis/go-redis/v9"
 	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
 
@@ -42,13 +43,14 @@ func main() {
 	mode := homerun.GetEnv("PITCHER_MODE", "redis")
 
 	var p pitcher.Pitcher
+	var redisConfig homerun.RedisConfig
 	switch mode {
 	case "file":
 		filePath := homerun.GetEnv("PITCHER_FILE", "pitched.log")
 		p = &pitcher.FilePitcher{Path: filePath}
 		slog.Info("pitcher mode: file", "path", filePath)
 	default:
-		redisConfig := config.LoadRedisConfig()
+		redisConfig = config.LoadRedisConfig()
 		rp := &pitcher.RedisPitcher{Config: redisConfig}
 
 		// One 5s health check used to end the process when Redis was still
@@ -86,6 +88,7 @@ func main() {
 	// Start GitHub watcher if WATCH_CONFIG is set.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	defer watchCancel()
+	var bridgeDone chan struct{}
 
 	if watchConfigPath := homerun.GetEnv("WATCH_CONFIG", ""); watchConfigPath != "" {
 		watchCfg, err := watcher.LoadWatchConfig(watchConfigPath)
@@ -94,11 +97,36 @@ func main() {
 			os.Exit(1)
 		}
 
-		dedupPath := homerun.GetEnv("DEDUP_STATE_FILE", "")
-		dedup, err := watcher.NewMemoryDedupStore(watcher.DefaultDedupConfig(), dedupPath)
-		if err != nil {
-			slog.Error("failed to create dedup store", "error", err)
-			os.Exit(1)
+		// In redis mode the seen set lives in Redis next to the stream it
+		// protects, so a restart or reschedule does not forget it (#34).
+		// DEDUP_STATE_FILE only applies to file mode.
+		var dedup watcher.DedupStore
+		if mode == "file" {
+			dedupPath := homerun.GetEnv("DEDUP_STATE_FILE", "")
+			fileDedup, err := watcher.NewMemoryDedupStore(watcher.DefaultDedupConfig(), dedupPath)
+			if err != nil {
+				slog.Error("failed to create dedup store", "error", err)
+				os.Exit(1)
+			}
+			dedup = fileDedup
+		} else {
+			dedupClient := redis.NewClient(&redis.Options{
+				Addr:     redisConfig.Addr + ":" + redisConfig.Port,
+				Password: redisConfig.Password,
+			})
+			defer func() { _ = dedupClient.Close() }()
+
+			stream := watchCfg.Stream
+			if stream == "" {
+				stream = redisConfig.Stream
+			}
+			repos := make([]string, 0, len(watchCfg.GitHub.Repos))
+			for _, repo := range watchCfg.GitHub.Repos {
+				repos = append(repos, repo.FullName())
+			}
+			prefix := "homerun2-git-pitcher:seen:" + stream + ":"
+			dedup = watcher.NewRedisDedupStore(watchCtx, dedupClient, prefix, watcher.DefaultDedupConfig(), repos)
+			slog.Info("dedup state in redis", "keyPrefix", prefix, "retention", dedup.Retention().String())
 		}
 
 		ghWatcher, err := watcher.NewGitHubWatcher(watchCfg, dedup)
@@ -135,7 +163,9 @@ func main() {
 			Dedup:   dedup,
 		}
 
+		bridgeDone = make(chan struct{})
 		go func() {
+			defer close(bridgeDone)
 			slog.Info("starting github watcher",
 				"repos", len(watchCfg.GitHub.Repos),
 				"config", watchConfigPath,
@@ -168,6 +198,15 @@ func main() {
 
 	slog.Info("shutting down")
 	watchCancel()
+	// The bridge flushes the file dedup store when the watcher stops; without
+	// this wait main could exit first and the state was never written.
+	if bridgeDone != nil {
+		select {
+		case <-bridgeDone:
+		case <-time.After(5 * time.Second):
+			slog.Warn("watcher bridge did not stop within 5s")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

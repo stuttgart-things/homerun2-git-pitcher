@@ -130,9 +130,10 @@ The `token` field supports `env:VAR_NAME` syntax to read the value from an envir
 
 The dedup store prevents the same GitHub event from being pitched twice. It tracks event IDs per repository with configurable limits:
 
-- **Max events per repo:** 1000 (oldest evicted when exceeded)
-- **Retention:** 24 hours (expired entries removed)
-- **Persistence:** set `DEDUP_STATE_FILE` to a file path; state is saved as JSON on shutdown and reloaded on startup
+- **Max events per repo:** 1000 (oldest by creation time evicted when exceeded)
+- **Retention:** 24 hours from the event's **creation time** on GitHub. An unseen event older than that is never pitched, because its entry may already have expired. GitHub keeps listing the last 30 events for days; with retention counted from "seen", the next new event re-pitched all of them (#34).
+- **Persistence, redis mode:** a sorted set per repo, `homerun2-git-pitcher:seen:<stream>:<owner>/<repo>`, scored by creation time. It is written on every mark and read at startup, so restarts and reschedules keep the state. If Redis is unreachable, the store logs and deduplicates in memory.
+- **Persistence, file mode:** set `DEDUP_STATE_FILE` to a file path; state is saved as JSON on shutdown and reloaded on startup
 - **First-run suppression:** on the first poll for a repo with no persisted state, all existing events are marked as seen without pitching
 
 ## Rate limit monitoring
@@ -170,7 +171,7 @@ The watcher tracks GitHub API rate limits and automatically backs off when remai
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WATCH_CONFIG` | Path to YAML watch profile | (disabled) |
-| `DEDUP_STATE_FILE` | Dedup persistence path | (in-memory only) |
+| `DEDUP_STATE_FILE` | Dedup persistence path (file mode only) | (in-memory only) |
 
 ### Logging
 
