@@ -241,6 +241,11 @@ func TestWantsPayload(t *testing.T) {
 		{"no filter", issueCommentEvent("created", "x"), open, true},
 		{"edited", issueCommentEvent("edited", "x", "daily-pr-report"), filtered, false},
 		{"not a comment", makeEvent("ReleaseEvent", "r", []byte(`{}`)), filtered, true},
+		{"pr opened", makeEvent("PullRequestEvent", "r", []byte(`{"action":"opened","pull_request":{"number":1}}`)), open, true},
+		{"pr merged", makeEvent("PullRequestEvent", "r", []byte(`{"action":"merged","pull_request":{"number":1}}`)), open, true},
+		{"pr closed", makeEvent("PullRequestEvent", "r", []byte(`{"action":"closed","pull_request":{"number":1}}`)), open, true},
+		{"pr labeled", makeEvent("PullRequestEvent", "r", []byte(`{"action":"labeled","pull_request":{"number":1}}`)), open, false},
+		{"pr assigned", makeEvent("PullRequestEvent", "r", []byte(`{"action":"assigned","pull_request":{"number":1}}`)), open, false},
 	}
 
 	for _, tt := range tests {

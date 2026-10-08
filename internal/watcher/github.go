@@ -386,17 +386,34 @@ func (w *GitHubWatcher) updateRateLimit(resp *github.Response) {
 	}
 }
 
-// wantsPayload applies the filters that need the event payload: an
-// issue_comment is pitched only when it was created (not edited or deleted)
-// and its issue carries one of the repo's labels.
+// pitchedPRActions are the pull request actions that change its state.
+// labeled, unlabeled, assigned, review_requested and the like are dropped:
+// with a whole org watched they made a card each (#68).
+var pitchedPRActions = map[string]bool{
+	"opened":           true,
+	"reopened":         true,
+	"ready_for_review": true,
+	"closed":           true,
+	"merged":           true,
+}
+
+// wantsPayload applies the filters that need the event payload: a pull
+// request event is pitched only for a state change (pitchedPRActions), an
+// issue_comment only when it was created (not edited or deleted) and its
+// issue carries one of the repo's labels.
 func wantsPayload(event *github.Event, repo RepoConfig) bool {
-	if event.GetType() != "IssueCommentEvent" {
+	switch event.GetType() {
+	case "IssueCommentEvent", "PullRequestEvent":
+	default:
 		return true
 	}
 	payload, err := event.ParsePayload()
 	if err != nil {
 		// Let eventToMessage report the parse error.
 		return true
+	}
+	if p, ok := payload.(*github.PullRequestEvent); ok {
+		return pitchedPRActions[p.GetAction()]
 	}
 	p, ok := payload.(*github.IssueCommentEvent)
 	if !ok || p.GetAction() != "created" {
