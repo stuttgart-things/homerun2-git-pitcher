@@ -184,7 +184,7 @@ curl -s http://localhost:8080/health | jq .
 | GitHub Event | Title | Severity | URL |
 |-------------|-------|----------|-----|
 | Push | `Push to {branch} on {repo}` | info | compare URL |
-| Pull Request | `PR #{n}: {title} ({action})` | info / success (merged) / warning (closed) | PR URL |
+| Pull Request | `PR #{n}: {title} ({action})`; only `opened`, `reopened`, `ready_for_review`, `closed`, `merged` | info / success (merged) / warning (closed) | PR URL |
 | Release | `Release {tag} on {repo}` | success | release URL |
 | Workflow Run | `Workflow {name} {conclusion}` | success / error / warning | run URL |
 | Issue Comment | `Comment on #{n}: {issue title} on {repo}` | info, or set by the comment's marker | comment URL |
