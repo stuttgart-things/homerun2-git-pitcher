@@ -31,6 +31,9 @@ type RepoConfig struct {
 	Events   []EventKind   `yaml:"events"`
 	// Stream overrides the top-level WatchConfig.Stream for this repo.
 	Stream string `yaml:"stream"`
+	// Labels restricts issue_comment events to issues carrying at least one
+	// of these labels. Empty means every issue. Other event kinds ignore it.
+	Labels []string `yaml:"labels"`
 }
 
 // ResolveStream returns the stream for events from this repo.
@@ -50,6 +53,8 @@ const (
 	EventPullRequest EventKind = "pull_request"
 	EventRelease     EventKind = "release"
 	EventWorkflowRun EventKind = "workflow_run"
+	// EventIssueComment is opt-in: it is not part of the default events.
+	EventIssueComment EventKind = "issue_comment"
 )
 
 // FullName returns "owner/name".
@@ -62,6 +67,22 @@ func (r RepoConfig) WatchesEvent(kind EventKind) bool {
 	for _, e := range r.Events {
 		if e == kind {
 			return true
+		}
+	}
+	return false
+}
+
+// MatchesLabels returns true if no label filter is set or if one of the
+// given labels is in it.
+func (r RepoConfig) MatchesLabels(labels []string) bool {
+	if len(r.Labels) == 0 {
+		return true
+	}
+	for _, want := range r.Labels {
+		for _, got := range labels {
+			if want == got {
+				return true
+			}
 		}
 	}
 	return false
@@ -124,10 +145,10 @@ func (c *WatchConfig) Validate() error {
 		}
 		for _, ev := range repo.Events {
 			switch ev {
-			case EventPush, EventPullRequest, EventRelease, EventWorkflowRun:
+			case EventPush, EventPullRequest, EventRelease, EventWorkflowRun, EventIssueComment:
 				// valid
 			default:
-				return fmt.Errorf("github.repos[%d].events: unknown event kind %q (valid: push, pull_request, release, workflow_run)", i, ev)
+				return fmt.Errorf("github.repos[%d].events: unknown event kind %q (valid: push, pull_request, release, workflow_run, issue_comment)", i, ev)
 			}
 		}
 	}

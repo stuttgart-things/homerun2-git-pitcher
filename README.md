@@ -39,6 +39,12 @@ github:
       name: rpi-rgb-led-matrix
       interval: 30m
       events: [release]
+
+    - owner: stuttgart-things
+      name: stuttgart-things
+      interval: 5m
+      events: [issue_comment]
+      labels: [daily-pr-report]   # only comments on issues with this label
 ```
 
 **Fields:**
@@ -49,9 +55,24 @@ github:
 | `repos[].owner` | yes | — | GitHub organization or user |
 | `repos[].name` | yes | — | Repository name |
 | `repos[].interval` | no | `5m` | Poll interval (minimum `30s`) |
-| `repos[].events` | no | all 4 types | Event types to watch |
+| `repos[].events` | no | `push`, `pull_request`, `release`, `workflow_run` | Event types to watch |
+| `repos[].labels` | no | — | `issue_comment` only: pitch a comment only if its issue carries one of these labels |
 
-**Supported event types:** `push`, `pull_request`, `release`, `workflow_run`
+**Supported event types:** `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`
+
+`issue_comment` is opt-in (not in the defaults) and pitches newly created comments only, not edits. A comment can steer its own message with HTML comments, which GitHub does not render:
+
+```markdown
+<!-- homerun2:severity=warning -->
+<!-- homerun2:tags=morning -->
+## Morning report
+...
+```
+
+- `homerun2:severity=` sets the severity (`info`, `success`, `warning`, `error`; default `info`)
+- `homerun2:tags=` appends comma-separated tags to the message's tags
+
+Both markers are stripped from the message; the text is cut at 1000 characters.
 
 **GitHub token permissions:** the watcher only calls `Activity.ListRepositoryEvents` against the configured repos. For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
 
@@ -148,6 +169,7 @@ curl -s http://localhost:8080/health | jq .
 | Pull Request | `PR #{n}: {title} ({action})` | info / success (merged) / warning (closed) | PR URL |
 | Release | `Release {tag} on {repo}` | success | release URL |
 | Workflow Run | `Workflow {name} {conclusion}` | success / error / warning | run URL |
+| Issue Comment | `Comment on #{n}: {issue title} on {repo}` | info, or set by the comment's marker | comment URL |
 
 ## Configuration reference
 

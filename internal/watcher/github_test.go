@@ -18,6 +18,7 @@ func TestEventTypeToKind(t *testing.T) {
 		{"PullRequestEvent", EventPullRequest},
 		{"ReleaseEvent", EventRelease},
 		{"WorkflowRunEvent", EventWorkflowRun},
+		{"IssueCommentEvent", EventIssueComment},
 		{"ForkEvent", ""},
 		{"", ""},
 	}
@@ -152,6 +153,105 @@ func TestEventToMessage_CommonFields(t *testing.T) {
 }
 
 // makeEvent is a test helper that constructs a github.Event with a raw payload.
+func issueCommentEvent(action, body string, labels ...string) *github.Event {
+	var ls []*github.Label
+	for _, l := range labels {
+		ls = append(ls, &github.Label{Name: github.Ptr(l)})
+	}
+	payload := github.IssueCommentEvent{
+		Action: github.Ptr(action),
+		Issue: &github.Issue{
+			Number: github.Ptr(7),
+			Title:  github.Ptr("Daily PR Report – KW 41/2026"),
+			Labels: ls,
+		},
+		Comment: &github.IssueComment{
+			Body:    github.Ptr(body),
+			HTMLURL: github.Ptr("https://github.com/org/repo/issues/7#issuecomment-1"),
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return makeEvent("IssueCommentEvent", "reporter", raw)
+}
+
+func TestEventToMessage_IssueComment(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+
+	msg := eventToMessage(issueCommentEvent("created", "5 merged, 1 open"), repo)
+
+	if msg.Title != "Comment on #7: Daily PR Report – KW 41/2026 on org/repo" {
+		t.Errorf("unexpected title: %q", msg.Title)
+	}
+	if msg.Message != "5 merged, 1 open" {
+		t.Errorf("unexpected body: %q", msg.Message)
+	}
+	if msg.Severity != "info" {
+		t.Errorf("expected severity 'info' without marker, got %q", msg.Severity)
+	}
+	if msg.Tags != "github,issue_comment,org/repo" {
+		t.Errorf("unexpected tags: %q", msg.Tags)
+	}
+	if msg.URL != "https://github.com/org/repo/issues/7#issuecomment-1" {
+		t.Errorf("unexpected url: %s", msg.URL)
+	}
+}
+
+func TestEventToMessage_IssueCommentMarkers(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+	body := "<!-- homerun2:severity=warning -->\n<!-- homerun2:tags=morning,daily -->\n## Morning report\n#3520 checks red"
+
+	msg := eventToMessage(issueCommentEvent("created", body), repo)
+
+	if msg.Severity != "warning" {
+		t.Errorf("expected severity 'warning' from marker, got %q", msg.Severity)
+	}
+	if msg.Tags != "github,issue_comment,org/repo,morning,daily" {
+		t.Errorf("expected marker tags appended, got %q", msg.Tags)
+	}
+	if msg.Message != "## Morning report\n#3520 checks red" {
+		t.Errorf("expected markers stripped, got %q", msg.Message)
+	}
+}
+
+func TestEventToMessage_IssueCommentTruncation(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+	body := strings.Repeat("ä", maxCommentLen+10)
+
+	msg := eventToMessage(issueCommentEvent("created", body), repo)
+
+	want := strings.Repeat("ä", maxCommentLen) + "..."
+	if msg.Message != want {
+		t.Errorf("expected truncation to %d characters, got %d bytes", maxCommentLen, len(msg.Message))
+	}
+}
+
+func TestWantsPayload(t *testing.T) {
+	filtered := RepoConfig{Owner: "org", Name: "repo", Labels: []string{"daily-pr-report"}}
+	open := RepoConfig{Owner: "org", Name: "repo"}
+
+	tests := []struct {
+		name  string
+		event *github.Event
+		repo  RepoConfig
+		want  bool
+	}{
+		{"labelled issue", issueCommentEvent("created", "x", "bug", "daily-pr-report"), filtered, true},
+		{"other label", issueCommentEvent("created", "x", "bug"), filtered, false},
+		{"no label", issueCommentEvent("created", "x"), filtered, false},
+		{"no filter", issueCommentEvent("created", "x"), open, true},
+		{"edited", issueCommentEvent("edited", "x", "daily-pr-report"), filtered, false},
+		{"not a comment", makeEvent("ReleaseEvent", "r", []byte(`{}`)), filtered, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wantsPayload(tt.event, tt.repo); got != tt.want {
+				t.Errorf("wantsPayload() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func makeEvent(eventType, login string, rawPayload []byte) *github.Event {
 	now := time.Now()
 	ts := github.Timestamp{Time: now}

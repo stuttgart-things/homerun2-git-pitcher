@@ -101,9 +101,43 @@ github:
 	if cfg.GitHub.Repos[0].Interval != 5*time.Minute {
 		t.Errorf("expected default 5m interval, got %s", cfg.GitHub.Repos[0].Interval)
 	}
-	// Default events (all)
+	// Default events (all but the opt-in issue_comment)
 	if len(cfg.GitHub.Repos[0].Events) != 4 {
 		t.Errorf("expected 4 default events, got %d", len(cfg.GitHub.Repos[0].Events))
+	}
+	if cfg.GitHub.Repos[0].WatchesEvent(EventIssueComment) {
+		t.Error("issue_comment must not be a default event")
+	}
+}
+
+func TestLoadWatchConfigIssueCommentLabels(t *testing.T) {
+	yaml := `
+github:
+  token: tok
+  repos:
+    - owner: org
+      name: repo
+      events: [issue_comment]
+      labels: [daily-pr-report]
+`
+	path := filepath.Join(t.TempDir(), "watch.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := LoadWatchConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	repo := cfg.GitHub.Repos[0]
+	if !repo.WatchesEvent(EventIssueComment) {
+		t.Error("expected repo to watch issue_comment events")
+	}
+	if !repo.MatchesLabels([]string{"bug", "daily-pr-report"}) {
+		t.Error("expected label daily-pr-report to match")
+	}
+	if repo.MatchesLabels([]string{"bug"}) {
+		t.Error("label bug must not match")
 	}
 }
 
