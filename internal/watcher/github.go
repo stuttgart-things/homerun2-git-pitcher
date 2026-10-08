@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -184,6 +185,7 @@ func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, even
 			continue
 		}
 
+		w.fillPayload(ctx, event, repo)
 		msg := eventToMessage(event, repo)
 		select {
 		case msgs <- PitchEvent{Message: msg, Stream: w.config.ResolveStream(repo)}:
@@ -208,6 +210,83 @@ func (w *GitHubWatcher) createdAt(event *github.Event) time.Time {
 		return t
 	}
 	return w.now()
+}
+
+// fillPayload restores what GitHub's Events API stopped sending on
+// 2025-10-07 (#64): a PullRequestEvent carries only number, url, base and
+// head of its pull request, a PushEvent only before and head. It fetches the
+// pull request or the compare of the push and writes it back into the
+// event's raw payload, so eventToMessage keeps one code path for full and
+// slim payloads. On an API error the event is pitched with what it has.
+func (w *GitHubWatcher) fillPayload(ctx context.Context, event *github.Event, repo RepoConfig) {
+	logger := slog.With("repo", repo.FullName(), "event", event.GetID())
+
+	payload, err := event.ParsePayload()
+	if err != nil {
+		return
+	}
+
+	var filled any
+	switch p := payload.(type) {
+	case *github.PullRequestEvent:
+		number := p.GetPullRequest().GetNumber()
+		if number == 0 {
+			number = p.GetNumber()
+		}
+		if p.GetPullRequest().GetTitle() != "" || number == 0 {
+			return
+		}
+		pr, resp, err := w.client.PullRequests.Get(ctx, repo.Owner, repo.Name, number)
+		w.updateRateLimit(resp)
+		if err != nil {
+			logger.Warn("failed to fetch pull request for slim event payload", "number", number, "error", err)
+			return
+		}
+		p.PullRequest = pr
+		filled = p
+
+	case *github.PushEvent:
+		if p.GetHeadCommit() != nil || p.GetBefore() == "" || p.GetHead() == "" {
+			return
+		}
+		cmp, resp, err := w.client.Repositories.CompareCommits(ctx, repo.Owner, repo.Name, p.GetBefore(), p.GetHead(), nil)
+		w.updateRateLimit(resp)
+		if err != nil {
+			// A new branch has before 0000…, which has nothing to compare.
+			logger.Debug("failed to compare push for slim event payload", "error", err)
+			return
+		}
+		p.Commits = nil
+		for _, c := range cmp.Commits {
+			p.Commits = append(p.Commits, &github.HeadCommit{
+				ID:      c.SHA,
+				Message: c.GetCommit().Message,
+			})
+		}
+		if n := len(p.Commits); n > 0 {
+			p.HeadCommit = p.Commits[n-1]
+		}
+		p.Compare = cmp.HTMLURL
+		p.Pusher = &github.CommitAuthor{Name: github.Ptr(event.GetActor().GetLogin())}
+		filled = p
+
+	default:
+		return
+	}
+
+	raw, err := json.Marshal(filled)
+	if err != nil {
+		return
+	}
+	rawMsg := json.RawMessage(raw)
+	event.RawPayload = &rawMsg
+}
+
+// updateRateLimit feeds the rate limit of an API response to the monitor.
+func (w *GitHubWatcher) updateRateLimit(resp *github.Response) {
+	if resp != nil && resp.Rate.Limit > 0 {
+		w.RateLimit.Update(resp.Rate)
+	}
 }
 
 // wantsPayload applies the filters that need the event payload: an
@@ -319,16 +398,30 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 	case *github.PullRequestEvent:
 		pr := p.GetPullRequest()
 		action := p.GetAction()
-		title = fmt.Sprintf("PR #%d: %s (%s) on %s", pr.GetNumber(), pr.GetTitle(), action, repo.FullName())
+		if pr.GetTitle() != "" {
+			title = fmt.Sprintf("PR #%d: %s (%s) on %s", pr.GetNumber(), pr.GetTitle(), action, repo.FullName())
+		} else {
+			// Slim payload whose pull request could not be fetched.
+			title = fmt.Sprintf("PR #%d (%s) on %s", pr.GetNumber(), action, repo.FullName())
+		}
+		author := pr.GetUser().GetLogin()
+		if author == "" {
+			author = event.GetActor().GetLogin()
+		}
 		body = fmt.Sprintf("PR %s by %s: %s → %s",
 			action,
-			pr.GetUser().GetLogin(),
+			author,
 			pr.GetHead().GetRef(),
 			pr.GetBase().GetRef(),
 		)
 		switch action {
 		case "opened":
 			severity = "info"
+		case "merged":
+			// Events API since 2025-10-07: a merge is its own action, not
+			// closed with merged set.
+			severity = "success"
+			body = fmt.Sprintf("PR merged by %s: %s → %s", mergedBy(pr, event), pr.GetHead().GetRef(), pr.GetBase().GetRef())
 		case "closed":
 			if pr.GetMerged() {
 				severity = "success"
@@ -338,6 +431,9 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 			}
 		}
 		url = pr.GetHTMLURL()
+		if url == "" {
+			url = fmt.Sprintf("%s/pull/%d", repoURL, pr.GetNumber())
+		}
 
 	case *github.ReleaseEvent:
 		rel := p.GetRelease()
@@ -428,4 +524,13 @@ func commentTags(body, tags string) (string, string) {
 		body = string([]rune(body)[:maxCommentLen]) + "..."
 	}
 	return body, tags
+}
+
+// mergedBy names who merged pr: the pull request's merged_by if the payload
+// has it, else the event's actor, which for a merged event is the merger.
+func mergedBy(pr *github.PullRequest, event *github.Event) string {
+	if login := pr.GetMergedBy().GetLogin(); login != "" {
+		return login
+	}
+	return event.GetActor().GetLogin()
 }
