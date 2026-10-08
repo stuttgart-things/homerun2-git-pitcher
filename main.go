@@ -120,12 +120,8 @@ func main() {
 			if stream == "" {
 				stream = redisConfig.Stream
 			}
-			repos := make([]string, 0, len(watchCfg.GitHub.Repos))
-			for _, repo := range watchCfg.GitHub.Repos {
-				repos = append(repos, repo.FullName())
-			}
 			prefix := "homerun2-git-pitcher:seen:" + stream + ":"
-			dedup = watcher.NewRedisDedupStore(watchCtx, dedupClient, prefix, watcher.DefaultDedupConfig(), repos)
+			dedup = watcher.NewRedisDedupStore(watchCtx, dedupClient, prefix, watcher.DefaultDedupConfig(), watchCfg.DedupKeys())
 			slog.Info("dedup state in redis", "keyPrefix", prefix, "retention", dedup.Retention().String())
 		}
 
@@ -139,6 +135,11 @@ func main() {
 		for _, repo := range watchCfg.GitHub.Repos {
 			if repo.Stream != "" {
 				overrides[repo.FullName()] = repo.Stream
+			}
+		}
+		for _, org := range watchCfg.GitHub.Orgs {
+			if org.Stream != "" {
+				overrides[org.DedupKey()] = org.Stream
 			}
 		}
 		slog.Info("stream routing resolved",
@@ -168,6 +169,7 @@ func main() {
 			defer close(bridgeDone)
 			slog.Info("starting github watcher",
 				"repos", len(watchCfg.GitHub.Repos),
+				"orgs", len(watchCfg.GitHub.Orgs),
 				"config", watchConfigPath,
 			)
 			if err := bridge.Run(watchCtx); err != nil {

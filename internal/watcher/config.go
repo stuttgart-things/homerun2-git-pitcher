@@ -20,7 +20,29 @@ type WatchConfig struct {
 type GitHubConfig struct {
 	// Token is the GitHub PAT. Supports "env:VAR_NAME" syntax to read from env.
 	Token string       `yaml:"token"`
+	Orgs  []OrgConfig  `yaml:"orgs"`
 	Repos []RepoConfig `yaml:"repos"`
+}
+
+// OrgConfig watches every public repo of an organization through one call
+// per poll (GET /orgs/{org}/events). Private repos are not in that feed;
+// list them under repos. A repo listed under repos is skipped here, so its
+// own settings win and nothing is pitched twice.
+type OrgConfig struct {
+	Name     string        `yaml:"name"`
+	Interval time.Duration `yaml:"interval"`
+	Events   []EventKind   `yaml:"events"`
+	// Stream overrides the top-level WatchConfig.Stream for this org.
+	Stream string `yaml:"stream"`
+	// ExcludeActors drops events by these logins, e.g. "renovate[bot]".
+	ExcludeActors []string `yaml:"exclude_actors"`
+	// ExcludeRepos drops events of these repos, by name or owner/name.
+	ExcludeRepos []string `yaml:"exclude_repos"`
+}
+
+// DedupKey is the key under which the dedup store keeps this org's events.
+func (o OrgConfig) DedupKey() string {
+	return "org:" + o.Name
 }
 
 // RepoConfig defines a single repository to watch.
@@ -88,6 +110,18 @@ func (r RepoConfig) MatchesLabels(labels []string) bool {
 	return false
 }
 
+// DedupKeys returns the dedup store keys of every configured repo and org.
+func (c *WatchConfig) DedupKeys() []string {
+	keys := make([]string, 0, len(c.GitHub.Repos)+len(c.GitHub.Orgs))
+	for _, repo := range c.GitHub.Repos {
+		keys = append(keys, repo.FullName())
+	}
+	for _, org := range c.GitHub.Orgs {
+		keys = append(keys, org.DedupKey())
+	}
+	return keys
+}
+
 // LoadWatchConfig loads the watch configuration from a YAML file.
 func LoadWatchConfig(path string) (*WatchConfig, error) {
 	data, err := os.ReadFile(path)
@@ -122,8 +156,24 @@ func (c *WatchConfig) Validate() error {
 		return fmt.Errorf("github.token is required")
 	}
 
-	if len(c.GitHub.Repos) == 0 {
-		return fmt.Errorf("github.repos must contain at least one repository")
+	if len(c.GitHub.Repos) == 0 && len(c.GitHub.Orgs) == 0 {
+		return fmt.Errorf("github.repos or github.orgs must contain at least one entry")
+	}
+
+	for i, org := range c.GitHub.Orgs {
+		if org.Name == "" {
+			return fmt.Errorf("github.orgs[%d].name is required", i)
+		}
+		interval, err := validInterval(org.Interval)
+		if err != nil {
+			return fmt.Errorf("github.orgs[%d].%w", i, err)
+		}
+		c.GitHub.Orgs[i].Interval = interval
+		events, err := validEvents(org.Events)
+		if err != nil {
+			return fmt.Errorf("github.orgs[%d].%w", i, err)
+		}
+		c.GitHub.Orgs[i].Events = events
 	}
 
 	for i, repo := range c.GitHub.Repos {
@@ -133,25 +183,46 @@ func (c *WatchConfig) Validate() error {
 		if repo.Name == "" {
 			return fmt.Errorf("github.repos[%d].name is required", i)
 		}
-		if repo.Interval <= 0 {
-			// Default to 5 minutes
-			c.GitHub.Repos[i].Interval = 5 * time.Minute
-		} else if repo.Interval < 30*time.Second {
-			return fmt.Errorf("github.repos[%d].interval must be >= 30s (got %s)", i, repo.Interval)
+		interval, err := validInterval(repo.Interval)
+		if err != nil {
+			return fmt.Errorf("github.repos[%d].%w", i, err)
 		}
-		if len(repo.Events) == 0 {
-			// Default to all events
-			c.GitHub.Repos[i].Events = []EventKind{EventPush, EventPullRequest, EventRelease, EventWorkflowRun}
+		c.GitHub.Repos[i].Interval = interval
+		events, err := validEvents(repo.Events)
+		if err != nil {
+			return fmt.Errorf("github.repos[%d].%w", i, err)
 		}
-		for _, ev := range repo.Events {
-			switch ev {
-			case EventPush, EventPullRequest, EventRelease, EventWorkflowRun, EventIssueComment:
-				// valid
-			default:
-				return fmt.Errorf("github.repos[%d].events: unknown event kind %q (valid: push, pull_request, release, workflow_run, issue_comment)", i, ev)
-			}
-		}
+		c.GitHub.Repos[i].Events = events
 	}
 
 	return nil
+}
+
+// validInterval defaults an unset poll interval to 5 minutes and rejects
+// one below 30s.
+func validInterval(d time.Duration) (time.Duration, error) {
+	if d <= 0 {
+		return 5 * time.Minute, nil
+	}
+	if d < 30*time.Second {
+		return 0, fmt.Errorf("interval must be >= 30s (got %s)", d)
+	}
+	return d, nil
+}
+
+// validEvents defaults unset events to all but the opt-in issue_comment and
+// rejects unknown kinds.
+func validEvents(events []EventKind) ([]EventKind, error) {
+	if len(events) == 0 {
+		return []EventKind{EventPush, EventPullRequest, EventRelease, EventWorkflowRun}, nil
+	}
+	for _, ev := range events {
+		switch ev {
+		case EventPush, EventPullRequest, EventRelease, EventWorkflowRun, EventIssueComment:
+			// valid
+		default:
+			return nil, fmt.Errorf("events: unknown event kind %q (valid: push, pull_request, release, workflow_run, issue_comment)", ev)
+		}
+	}
+	return events, nil
 }

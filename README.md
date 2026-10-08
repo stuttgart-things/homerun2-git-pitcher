@@ -18,11 +18,19 @@ GitHub API  ──poll──>  git-pitcher  ──pitch──>  Redis Stream  �
 
 ### Watch profile
 
-Create a YAML file defining which repos to watch:
+Create a YAML file defining which orgs and repos to watch:
 
 ```yaml
 github:
   token: env:GITHUB_TOKEN   # reads from environment variable
+
+  # Every public repo of an org, one API call per poll
+  orgs:
+    - name: stuttgart-things
+      interval: 5m
+      events: [pull_request, release]
+      exclude_actors: ["renovate[bot]"]
+      exclude_repos: [stuttgart-things.github.io]
 
   repos:
     - owner: stuttgart-things
@@ -52,11 +60,21 @@ github:
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `github.token` | yes | — | GitHub PAT or `env:VAR_NAME` to read from env |
+| `orgs[].name` | yes | — | GitHub organization |
+| `orgs[].interval` | no | `5m` | Poll interval (minimum `30s`) |
+| `orgs[].events` | no | `push`, `pull_request`, `release`, `workflow_run` | Event types to watch |
+| `orgs[].stream` | no | top-level `stream` | Redis stream for this org's events |
+| `orgs[].exclude_actors` | no | — | Drop events by these logins, e.g. `renovate[bot]` |
+| `orgs[].exclude_repos` | no | — | Drop events of these repos, by `name` or `owner/name` |
 | `repos[].owner` | yes | — | GitHub organization or user |
 | `repos[].name` | yes | — | Repository name |
 | `repos[].interval` | no | `5m` | Poll interval (minimum `30s`) |
 | `repos[].events` | no | `push`, `pull_request`, `release`, `workflow_run` | Event types to watch |
 | `repos[].labels` | no | — | `issue_comment` only: pitch a comment only if its issue carries one of these labels |
+
+At least one entry under `orgs` or `repos` is required.
+
+**Orgs vs. repos:** an org is polled through `GET /orgs/{org}/events`, a single call per poll for all its repos (100 events per page), where each repo listed under `repos` costs one call per poll. The org feed only carries **public** repos: list private repos under `repos`, with a token that can read them. A repo listed under `repos` is skipped in its org's feed, so its own settings apply and nothing is pitched twice.
 
 **Supported event types:** `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`
 
@@ -74,7 +92,7 @@ github:
 
 Both markers are stripped from the message; the text is cut at 1000 characters.
 
-**GitHub token permissions:** the watcher only calls `Activity.ListRepositoryEvents` against the configured repos. For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
+**GitHub token permissions:** the watcher only reads: the event feeds of the configured repos and orgs, plus a pull request or a commit compare when an event's payload is slim (#64). For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
 
 If you prefer to be explicit:
 

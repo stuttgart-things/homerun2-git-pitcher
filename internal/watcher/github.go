@@ -42,13 +42,14 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) (*GitHubWatcher, error
 		dedup, _ = NewMemoryDedupStore(DefaultDedupConfig(), "")
 	}
 
-	firstRun := make(map[string]bool, len(cfg.GitHub.Repos))
-	for _, repo := range cfg.GitHub.Repos {
-		// If the dedup store already has state for this repo (loaded from
-		// persistence), skip the first-run suppression.
-		stats := dedup.Stats()
-		if stats[repo.FullName()] == 0 {
-			firstRun[repo.FullName()] = true
+	keys := cfg.DedupKeys()
+	firstRun := make(map[string]bool, len(keys))
+	stats := dedup.Stats()
+	for _, key := range keys {
+		// If the dedup store already has state for this repo or org (loaded
+		// from persistence), skip the first-run suppression.
+		if stats[key] == 0 {
+			firstRun[key] = true
 		}
 	}
 
@@ -62,7 +63,7 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) (*GitHubWatcher, error
 	}, nil
 }
 
-// Watch starts a goroutine per configured repo that polls for events at the
+// Watch starts a goroutine per configured repo and org that polls for events at the
 // configured interval. Events are converted to homerun Messages and sent on
 // the returned channel. Polling stops when ctx is cancelled.
 func (w *GitHubWatcher) Watch(ctx context.Context) (<-chan PitchEvent, error) {
@@ -75,6 +76,13 @@ func (w *GitHubWatcher) Watch(ctx context.Context) (<-chan PitchEvent, error) {
 			defer wg.Done()
 			w.pollRepo(ctx, repo, msgs)
 		}(repo)
+	}
+	for _, org := range w.config.GitHub.Orgs {
+		wg.Add(1)
+		go func(org OrgConfig) {
+			defer wg.Done()
+			w.pollOrg(ctx, org, msgs)
+		}(org)
 	}
 
 	go func() {
@@ -124,9 +132,7 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 	}
 
 	// Update rate limit monitor from response.
-	if resp.Rate.Limit > 0 {
-		w.RateLimit.Update(resp.Rate)
-	}
+	w.updateRateLimit(resp)
 
 	// Handle conditional requests (304 Not Modified).
 	if resp.StatusCode == 304 {
@@ -137,22 +143,32 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 	w.processEvents(ctx, repo, events, msgs)
 }
 
-// processEvents pitches the events of one poll that have not been seen yet.
+// processEvents pitches the events of one poll of a repo that have not been
+// seen yet.
 func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, events []*github.Event, msgs chan<- PitchEvent) {
-	logger := slog.With("repo", repo.FullName())
+	w.processFeed(ctx, repo.FullName(), events, msgs, func(*github.Event) (RepoConfig, bool) {
+		return repo, true
+	})
+}
 
-	// On first run for a repo with no persisted state, mark all current
+// processFeed pitches the events of one poll of a feed (a repo or an org)
+// that have not been seen yet. key is the feed's dedup key; repoFor returns
+// the settings an event is judged by, or false to drop it.
+func (w *GitHubWatcher) processFeed(ctx context.Context, key string, events []*github.Event, msgs chan<- PitchEvent, repoFor func(*github.Event) (RepoConfig, bool)) {
+	logger := slog.With("feed", key)
+
+	// On first run for a feed with no persisted state, mark all current
 	// events as seen without pitching them to avoid flooding.
 	w.mu.Lock()
-	isFirstRun := w.firstRun[repo.FullName()]
+	isFirstRun := w.firstRun[key]
 	if isFirstRun {
-		w.firstRun[repo.FullName()] = false
+		w.firstRun[key] = false
 	}
 	w.mu.Unlock()
 
 	if isFirstRun {
 		for _, event := range events {
-			w.dedup.Mark(repo.FullName(), event.GetID(), w.createdAt(event))
+			w.dedup.Mark(key, event.GetID(), w.createdAt(event))
 		}
 		logger.Info("first run: marked existing events as seen", "count", len(events))
 		return
@@ -164,7 +180,7 @@ func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, even
 		eventID := event.GetID()
 
 		// Skip already-seen events.
-		if w.dedup.Seen(repo.FullName(), eventID) {
+		if w.dedup.Seen(key, eventID) {
 			continue
 		}
 
@@ -178,10 +194,11 @@ func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, even
 		}
 
 		kind := eventTypeToKind(event.GetType())
-		if kind == "" || !repo.WatchesEvent(kind) || !wantsPayload(event, repo) {
-			// Mark as seen even if we don't care about this event type,
+		repo, ok := repoFor(event)
+		if !ok || kind == "" || !repo.WatchesEvent(kind) || !wantsPayload(event, repo) {
+			// Mark as seen even if we don't care about this event,
 			// so we don't re-evaluate it on every poll.
-			w.dedup.Mark(repo.FullName(), eventID, createdAt)
+			w.dedup.Mark(key, eventID, createdAt)
 			continue
 		}
 
@@ -189,7 +206,7 @@ func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, even
 		msg := eventToMessage(event, repo)
 		select {
 		case msgs <- PitchEvent{Message: msg, Stream: w.config.ResolveStream(repo)}:
-			w.dedup.Mark(repo.FullName(), eventID, createdAt)
+			w.dedup.Mark(key, eventID, createdAt)
 			newCount++
 		case <-ctx.Done():
 			return
@@ -210,6 +227,86 @@ func (w *GitHubWatcher) createdAt(event *github.Event) time.Time {
 		return t
 	}
 	return w.now()
+}
+
+// pollOrg polls an organization's public event feed at its interval.
+func (w *GitHubWatcher) pollOrg(ctx context.Context, org OrgConfig, msgs chan<- PitchEvent) {
+	logger := slog.With("org", org.Name)
+	logger.Info("starting org watcher", "interval", org.Interval, "events", org.Events)
+
+	w.fetchOrgAndSend(ctx, org, msgs)
+
+	ticker := time.NewTicker(org.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("org watcher stopped")
+			return
+		case <-ticker.C:
+			if err := w.RateLimit.WaitIfNeeded(ctx); err != nil {
+				return
+			}
+			w.fetchOrgAndSend(ctx, org, msgs)
+		}
+	}
+}
+
+// orgPerPage is one page of the org feed. About 100 events in 34 hours
+// were measured on stuttgart-things (2026-10-08), so one page per 5-minute
+// poll leaves a wide margin.
+const orgPerPage = 100
+
+// fetchOrgAndSend fetches the org's recent public events and sends new ones.
+func (w *GitHubWatcher) fetchOrgAndSend(ctx context.Context, org OrgConfig, msgs chan<- PitchEvent) {
+	events, resp, err := w.client.Activity.ListEventsForOrganization(ctx, org.Name, &github.ListOptions{
+		PerPage: orgPerPage,
+	})
+	w.updateRateLimit(resp)
+	if err != nil {
+		slog.Error("failed to list org events", "org", org.Name, "error", err)
+		return
+	}
+	if resp.StatusCode == 304 {
+		return
+	}
+
+	w.processFeed(ctx, org.DedupKey(), events, msgs, func(event *github.Event) (RepoConfig, bool) {
+		return w.orgRepoFor(org, event)
+	})
+}
+
+// orgRepoFor returns the settings an org event is judged by: the org's,
+// applied to the event's repo. It drops events of excluded actors and
+// repos, and of repos listed under repos, which their own watcher covers.
+func (w *GitHubWatcher) orgRepoFor(org OrgConfig, event *github.Event) (RepoConfig, bool) {
+	owner, name, ok := strings.Cut(event.GetRepo().GetName(), "/")
+	if !ok {
+		return RepoConfig{}, false
+	}
+	for _, actor := range org.ExcludeActors {
+		if strings.EqualFold(actor, event.GetActor().GetLogin()) {
+			return RepoConfig{}, false
+		}
+	}
+	for _, ex := range org.ExcludeRepos {
+		if strings.EqualFold(ex, name) || strings.EqualFold(ex, owner+"/"+name) {
+			return RepoConfig{}, false
+		}
+	}
+	for _, listed := range w.config.GitHub.Repos {
+		if strings.EqualFold(listed.FullName(), owner+"/"+name) {
+			return RepoConfig{}, false
+		}
+	}
+	return RepoConfig{
+		Owner:    owner,
+		Name:     name,
+		Interval: org.Interval,
+		Events:   org.Events,
+		Stream:   org.Stream,
+	}, true
 }
 
 // fillPayload restores what GitHub's Events API stopped sending on
