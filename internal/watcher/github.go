@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/go-github/v87/github"
 	homerun "github.com/stuttgart-things/homerun-library/v4"
@@ -174,7 +177,7 @@ func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, even
 		}
 
 		kind := eventTypeToKind(event.GetType())
-		if kind == "" || !repo.WatchesEvent(kind) {
+		if kind == "" || !repo.WatchesEvent(kind) || !wantsPayload(event, repo) {
 			// Mark as seen even if we don't care about this event type,
 			// so we don't re-evaluate it on every poll.
 			w.dedup.Mark(repo.FullName(), eventID, createdAt)
@@ -207,6 +210,29 @@ func (w *GitHubWatcher) createdAt(event *github.Event) time.Time {
 	return w.now()
 }
 
+// wantsPayload applies the filters that need the event payload: an
+// issue_comment is pitched only when it was created (not edited or deleted)
+// and its issue carries one of the repo's labels.
+func wantsPayload(event *github.Event, repo RepoConfig) bool {
+	if event.GetType() != "IssueCommentEvent" {
+		return true
+	}
+	payload, err := event.ParsePayload()
+	if err != nil {
+		// Let eventToMessage report the parse error.
+		return true
+	}
+	p, ok := payload.(*github.IssueCommentEvent)
+	if !ok || p.GetAction() != "created" {
+		return false
+	}
+	var labels []string
+	for _, l := range p.GetIssue().Labels {
+		labels = append(labels, l.GetName())
+	}
+	return repo.MatchesLabels(labels)
+}
+
 // eventTypeToKind maps GitHub event type strings to EventKind.
 func eventTypeToKind(ghType string) EventKind {
 	switch ghType {
@@ -218,6 +244,8 @@ func eventTypeToKind(ghType string) EventKind {
 		return EventRelease
 	case "WorkflowRunEvent":
 		return EventWorkflowRun
+	case "IssueCommentEvent":
+		return EventIssueComment
 	default:
 		return ""
 	}
@@ -234,6 +262,11 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 
 	title, body, severity, url := parseEventPayload(event, repo)
 
+	tags := fmt.Sprintf("github,%s,%s", kind, repo.FullName())
+	if kind == EventIssueComment {
+		body, tags = commentTags(body, tags)
+	}
+
 	return homerun.Message{
 		Title:     title,
 		Message:   body,
@@ -241,7 +274,7 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 		Author:    actor,
 		Timestamp: event.GetCreatedAt().Format(time.RFC3339),
 		System:    "homerun2-git-pitcher",
-		Tags:      fmt.Sprintf("github,%s,%s", kind, repo.FullName()),
+		Tags:      tags,
 		URL:       url,
 	}
 }
@@ -338,10 +371,61 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		}
 		url = run.GetHTMLURL()
 
+	case *github.IssueCommentEvent:
+		issue := p.GetIssue()
+		comment := p.GetComment()
+		title = fmt.Sprintf("Comment on #%d: %s on %s", issue.GetNumber(), issue.GetTitle(), repo.FullName())
+		body, severity = commentSeverity(comment.GetBody())
+		url = comment.GetHTMLURL()
+
 	default:
 		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
 		body = fmt.Sprintf("Event %s", event.GetID())
 	}
 
 	return
+}
+
+// maxCommentLen caps the comment text in a message, in characters. Longer
+// than a release body: a comment pitched on purpose (a report) is the
+// message itself.
+const maxCommentLen = 1000
+
+// A comment can steer its own message with HTML comments, which GitHub does
+// not render:
+//
+//	<!-- homerun2:severity=warning -->  severity instead of "info"
+//	<!-- homerun2:tags=morning -->      extra tags, comma-separated
+var (
+	severityMarker = regexp.MustCompile(`<!--\s*homerun2:severity=(info|success|warning|error)\s*-->\s*`)
+	tagsMarker     = regexp.MustCompile(`<!--\s*homerun2:tags=([A-Za-z0-9_.,-]+)\s*-->\s*`)
+)
+
+// commentSeverity returns the comment text without the severity marker and
+// the severity it sets, or "info" if it has none.
+func commentSeverity(text string) (string, string) {
+	severity := "info"
+	if m := severityMarker.FindStringSubmatch(text); m != nil {
+		severity = m[1]
+		text = severityMarker.ReplaceAllString(text, "")
+	}
+	return strings.TrimSpace(text), severity
+}
+
+// commentTags strips the tags marker from body, appends its tags to tags and
+// truncates body to maxCommentLen. It runs after commentSeverity, on the
+// already parsed body, so truncation never cuts a marker in half.
+func commentTags(body, tags string) (string, string) {
+	if m := tagsMarker.FindStringSubmatch(body); m != nil {
+		for _, t := range strings.Split(m[1], ",") {
+			if t != "" {
+				tags += "," + t
+			}
+		}
+		body = strings.TrimSpace(tagsMarker.ReplaceAllString(body, ""))
+	}
+	if utf8.RuneCountInString(body) > maxCommentLen {
+		body = string([]rune(body)[:maxCommentLen]) + "..."
+	}
+	return body, tags
 }
