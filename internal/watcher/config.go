@@ -110,11 +110,15 @@ func (r RepoConfig) MatchesLabels(labels []string) bool {
 	return false
 }
 
-// DedupKeys returns the dedup store keys of every configured repo and org.
+// DedupKeys returns the dedup store keys of every configured repo and org,
+// and of the comments of every repo watching issue_comment (#71).
 func (c *WatchConfig) DedupKeys() []string {
 	keys := make([]string, 0, len(c.GitHub.Repos)+len(c.GitHub.Orgs))
 	for _, repo := range c.GitHub.Repos {
 		keys = append(keys, repo.FullName())
+		if repo.WatchesEvent(EventIssueComment) {
+			keys = append(keys, commentDedupKey(repo))
+		}
 	}
 	for _, org := range c.GitHub.Orgs {
 		keys = append(keys, org.DedupKey())

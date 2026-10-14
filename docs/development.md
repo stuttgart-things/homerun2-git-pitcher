@@ -105,6 +105,14 @@ github:
       interval: 30m           # longer interval for external repos
       events:
         - release
+
+    - owner: stuttgart-things
+      name: stuttgart-things
+      interval: 5m
+      events:
+        - issue_comment       # read from /issues/comments, not the event feed
+      labels:
+        - daily-pr-report     # only comments on issues with this label
 ```
 
 ### Token resolution
@@ -124,7 +132,18 @@ The `token` field supports `env:VAR_NAME` syntax to read the value from an envir
 - At least one repo must be configured
 - Each repo must have `owner` and `name`
 - `interval` must be >= `30s`
-- Event types must be one of: `push`, `pull_request`, `release`, `workflow_run`
+- Event types must be one of: `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`
+
+### Issue comments
+
+The Events API lists an event 30 seconds to 6 hours after it happened, which held the daily PR report comments back for hours (#71). A repo watching `issue_comment` therefore reads its comments from `GET /repos/{owner}/{repo}/issues/comments?since=…&sort=created&direction=asc`, following every page:
+
+- `since` filters by `updated_at`, so edited comments come back too. Comments are deduplicated by ID (dedup key `comments:<owner>/<repo>`), and only comments created after the start (or within the dedup retention) are pitched: an edit is never pitched.
+- `since` is the newest `updated_at` seen, minus one minute of overlap.
+- On start without persisted dedup state, polling begins now: no backlog. With persisted state it reaches back the dedup retention, like the event feed after a restart.
+- The comment carries no labels and no issue title, so the issue is fetched from its `issue_url` and cached for an hour.
+- Comment events in the repo's event feed are dropped, so nothing is pitched twice. A repo watching only `issue_comment` skips the event feed.
+- The message is the same as before: `Comment on #N: <issue title> on owner/repo`, severity/tags markers, text cut at 1000 characters.
 
 ## Event deduplication
 

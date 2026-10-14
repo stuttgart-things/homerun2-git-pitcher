@@ -27,6 +27,10 @@ type GitHubWatcher struct {
 	mu       sync.Mutex
 	firstRun map[string]bool
 
+	// comments holds the comment poller state per repo watching
+	// issue_comment, by commentDedupKey (#71).
+	comments map[string]*commentState
+
 	now func() time.Time
 }
 
@@ -59,6 +63,7 @@ func NewGitHubWatcher(cfg *WatchConfig, dedup DedupStore) (*GitHubWatcher, error
 		dedup:     dedup,
 		RateLimit: NewRateLimitMonitor(DefaultBackoffThreshold),
 		firstRun:  firstRun,
+		comments:  map[string]*commentState{},
 		now:       time.Now,
 	}, nil
 }
@@ -99,7 +104,7 @@ func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan
 	logger.Info("starting watcher", "interval", repo.Interval, "events", repo.Events)
 
 	// Do an initial poll immediately.
-	w.fetchAndSend(ctx, repo, msgs)
+	w.pollRepoOnce(ctx, repo, msgs)
 
 	ticker := time.NewTicker(repo.Interval)
 	defer ticker.Stop()
@@ -114,7 +119,22 @@ func (w *GitHubWatcher) pollRepo(ctx context.Context, repo RepoConfig, msgs chan
 			if err := w.RateLimit.WaitIfNeeded(ctx); err != nil {
 				return
 			}
+			w.pollRepoOnce(ctx, repo, msgs)
+		}
+	}
+}
+
+// pollRepoOnce runs one poll of a repo: its comments from the comments
+// endpoint if it watches issue_comment (#71), every other kind from the
+// event feed. A repo watching only issue_comment skips the event feed.
+func (w *GitHubWatcher) pollRepoOnce(ctx context.Context, repo RepoConfig, msgs chan<- PitchEvent) {
+	if repo.WatchesEvent(EventIssueComment) {
+		w.fetchCommentsAndSend(ctx, repo, msgs)
+	}
+	for _, kind := range repo.Events {
+		if kind != EventIssueComment {
 			w.fetchAndSend(ctx, repo, msgs)
+			return
 		}
 	}
 }
@@ -144,10 +164,11 @@ func (w *GitHubWatcher) fetchAndSend(ctx context.Context, repo RepoConfig, msgs 
 }
 
 // processEvents pitches the events of one poll of a repo that have not been
-// seen yet.
+// seen yet. Its issue comments are dropped: fetchCommentsAndSend pitches
+// them without the feed's delay (#71), and would otherwise pitch them twice.
 func (w *GitHubWatcher) processEvents(ctx context.Context, repo RepoConfig, events []*github.Event, msgs chan<- PitchEvent) {
-	w.processFeed(ctx, repo.FullName(), events, msgs, func(*github.Event) (RepoConfig, bool) {
-		return repo, true
+	w.processFeed(ctx, repo.FullName(), events, msgs, func(event *github.Event) (RepoConfig, bool) {
+		return repo, event.GetType() != "IssueCommentEvent"
 	})
 }
 

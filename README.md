@@ -51,7 +51,7 @@ github:
     - owner: stuttgart-things
       name: stuttgart-things
       interval: 5m
-      events: [issue_comment]
+      events: [issue_comment]     # read from /issues/comments, not the event feed
       labels: [daily-pr-report]   # only comments on issues with this label
 ```
 
@@ -78,7 +78,9 @@ At least one entry under `orgs` or `repos` is required.
 
 **Supported event types:** `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`
 
-`issue_comment` is opt-in (not in the defaults) and pitches newly created comments only, not edits. A comment can steer its own message with HTML comments, which GitHub does not render:
+`issue_comment` is opt-in (not in the defaults) and pitches newly created comments only, not edits. Under `repos`, comments are read from `GET /repos/{owner}/{repo}/issues/comments?since=…&sort=created&direction=asc` instead of the event feed, because the Events API lists an event 30 seconds to 6 hours after it happened (#71). Each poll costs one call for the comments (more only past 100 comments) plus one per issue not yet cached (title and labels, cached for an hour). Comment events in the repo's event feed are dropped, so nothing is pitched twice; on start, no backlog is pitched. A repo watching only `issue_comment` does not poll its event feed at all. Under `orgs`, `issue_comment` still comes from the org event feed, with its delay.
+
+A comment can steer its own message with HTML comments, which GitHub does not render:
 
 ```markdown
 <!-- homerun2:severity=warning -->
@@ -92,7 +94,7 @@ At least one entry under `orgs` or `repos` is required.
 
 Both markers are stripped from the message; the text is cut at 1000 characters.
 
-**GitHub token permissions:** the watcher only reads: the event feeds of the configured repos and orgs, plus a pull request or a commit compare when an event's payload is slim (#64). For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
+**GitHub token permissions:** the watcher only reads: the event feeds of the configured repos and orgs, plus a pull request or a commit compare when an event's payload is slim (#64), plus the issue comments and their issues of repos watching `issue_comment` (#71). For an unscoped token, GitHub still grants the authenticated 5000/hr rate limit on public-repo reads, so a token with no permissions is enough for public repos.
 
 If you prefer to be explicit:
 
@@ -104,6 +106,7 @@ If you prefer to be explicit:
     - `Metadata`: Read-only — mandatory for any fine-grained PAT.
     - `Contents`: Read-only — needed for the events API.
     - `Actions`: Read-only — only required if you want `workflow_run` events on private repos.
+    - `Issues`: Read-only — required for `issue_comment` on private repos (comments and their issue's labels are read from the issues API). A token with only `Metadata`, `Contents` and `Pull requests` gets 403/404 there.
 
 No write permissions, no org/user permissions.
 
