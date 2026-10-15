@@ -131,6 +131,13 @@ func commentWatcher(t *testing.T) (*GitHubWatcher, RepoConfig, *fakeComments, *f
 	w, _ := slimWatcher(t, fake)
 	clock := &fakeClock{t: commentT0}
 	w.now = clock.now
+	// The dedup store prunes by its own clock: with the real one, every
+	// entry around commentT0 expired once commentT0 was 24h in the past.
+	s, ok := w.dedup.(*MemoryDedupStore)
+	if !ok {
+		t.Fatalf("expected a MemoryDedupStore, got %T", w.dedup)
+	}
+	s.now = clock.now
 	repo := RepoConfig{
 		Owner:    "org",
 		Name:     "repo",
