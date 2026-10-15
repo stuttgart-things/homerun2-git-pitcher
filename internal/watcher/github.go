@@ -397,13 +397,21 @@ var pitchedPRActions = map[string]bool{
 	"merged":           true,
 }
 
+// pitchedIssueActions are the issue actions that change its state (#75).
+var pitchedIssueActions = map[string]bool{
+	"opened":   true,
+	"closed":   true,
+	"reopened": true,
+}
+
 // wantsPayload applies the filters that need the event payload: a pull
 // request event is pitched only for a state change (pitchedPRActions), an
-// issue_comment only when it was created (not edited or deleted) and its
-// issue carries one of the repo's labels.
+// issues event only for a state change (pitchedIssueActions) and an
+// issue_comment only when it was created (not edited or deleted). Issue and
+// comment must also carry one of the repo's labels.
 func wantsPayload(event *github.Event, repo RepoConfig) bool {
 	switch event.GetType() {
-	case "IssueCommentEvent", "PullRequestEvent":
+	case "IssueCommentEvent", "IssuesEvent", "PullRequestEvent":
 	default:
 		return true
 	}
@@ -412,15 +420,25 @@ func wantsPayload(event *github.Event, repo RepoConfig) bool {
 		// Let eventToMessage report the parse error.
 		return true
 	}
-	if p, ok := payload.(*github.PullRequestEvent); ok {
+	var issue *github.Issue
+	switch p := payload.(type) {
+	case *github.PullRequestEvent:
 		return pitchedPRActions[p.GetAction()]
-	}
-	p, ok := payload.(*github.IssueCommentEvent)
-	if !ok || p.GetAction() != "created" {
+	case *github.IssuesEvent:
+		if !pitchedIssueActions[p.GetAction()] {
+			return false
+		}
+		issue = p.GetIssue()
+	case *github.IssueCommentEvent:
+		if p.GetAction() != "created" {
+			return false
+		}
+		issue = p.GetIssue()
+	default:
 		return false
 	}
 	var labels []string
-	for _, l := range p.GetIssue().Labels {
+	for _, l := range issue.Labels {
 		labels = append(labels, l.GetName())
 	}
 	return repo.MatchesLabels(labels)
@@ -439,6 +457,8 @@ func eventTypeToKind(ghType string) EventKind {
 		return EventWorkflowRun
 	case "IssueCommentEvent":
 		return EventIssueComment
+	case "IssuesEvent":
+		return EventIssues
 	default:
 		return ""
 	}
@@ -587,6 +607,32 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		title = fmt.Sprintf("Comment on #%d: %s on %s", issue.GetNumber(), issue.GetTitle(), repo.FullName())
 		body, severity = commentSeverity(comment.GetBody())
 		url = comment.GetHTMLURL()
+
+	case *github.IssuesEvent:
+		issue := p.GetIssue()
+		action := p.GetAction()
+		if issue.GetTitle() != "" {
+			title = fmt.Sprintf("Issue #%d: %s (%s) on %s", issue.GetNumber(), issue.GetTitle(), action, repo.FullName())
+		} else {
+			title = fmt.Sprintf("Issue #%d (%s) on %s", issue.GetNumber(), action, repo.FullName())
+		}
+		body = fmt.Sprintf("%s by %s", action, event.GetActor().GetLogin())
+		switch action {
+		case "closed":
+			reason := issue.GetStateReason()
+			if reason != "" {
+				body += fmt.Sprintf(" (%s)", reason)
+			}
+			if reason == "completed" {
+				severity = "success"
+			}
+		case "reopened":
+			severity = "warning"
+		}
+		url = issue.GetHTMLURL()
+		if url == "" {
+			url = fmt.Sprintf("%s/issues/%d", repoURL, issue.GetNumber())
+		}
 
 	default:
 		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
