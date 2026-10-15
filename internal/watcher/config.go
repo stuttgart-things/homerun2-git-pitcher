@@ -53,8 +53,9 @@ type RepoConfig struct {
 	Events   []EventKind   `yaml:"events"`
 	// Stream overrides the top-level WatchConfig.Stream for this repo.
 	Stream string `yaml:"stream"`
-	// Labels restricts issue_comment events to issues carrying at least one
-	// of these labels. Empty means every issue. Other event kinds ignore it.
+	// Labels restricts issue_comment and issues events to issues carrying at
+	// least one of these labels. Empty means every issue. Other event kinds
+	// ignore it.
 	Labels []string `yaml:"labels"`
 }
 
@@ -77,6 +78,8 @@ const (
 	EventWorkflowRun EventKind = "workflow_run"
 	// EventIssueComment is opt-in: it is not part of the default events.
 	EventIssueComment EventKind = "issue_comment"
+	// EventIssues is opt-in: it is not part of the default events.
+	EventIssues EventKind = "issues"
 )
 
 // FullName returns "owner/name".
@@ -215,17 +218,17 @@ func validInterval(d time.Duration) (time.Duration, error) {
 }
 
 // validEvents defaults unset events to all but the opt-in issue_comment and
-// rejects unknown kinds.
+// issues and rejects unknown kinds.
 func validEvents(events []EventKind) ([]EventKind, error) {
 	if len(events) == 0 {
 		return []EventKind{EventPush, EventPullRequest, EventRelease, EventWorkflowRun}, nil
 	}
 	for _, ev := range events {
 		switch ev {
-		case EventPush, EventPullRequest, EventRelease, EventWorkflowRun, EventIssueComment:
+		case EventPush, EventPullRequest, EventRelease, EventWorkflowRun, EventIssueComment, EventIssues:
 			// valid
 		default:
-			return nil, fmt.Errorf("events: unknown event kind %q (valid: push, pull_request, release, workflow_run, issue_comment)", ev)
+			return nil, fmt.Errorf("events: unknown event kind %q (valid: push, pull_request, release, workflow_run, issue_comment, issues)", ev)
 		}
 	}
 	return events, nil

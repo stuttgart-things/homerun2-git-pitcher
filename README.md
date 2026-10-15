@@ -70,13 +70,15 @@ github:
 | `repos[].name` | yes | — | Repository name |
 | `repos[].interval` | no | `5m` | Poll interval (minimum `30s`) |
 | `repos[].events` | no | `push`, `pull_request`, `release`, `workflow_run` | Event types to watch |
-| `repos[].labels` | no | — | `issue_comment` only: pitch a comment only if its issue carries one of these labels |
+| `repos[].labels` | no | — | `issue_comment` and `issues` only: pitch only if the issue carries one of these labels |
 
 At least one entry under `orgs` or `repos` is required.
 
 **Orgs vs. repos:** an org is polled through `GET /orgs/{org}/events`, a single call per poll for all its repos (100 events per page), where each repo listed under `repos` costs one call per poll. The org feed only carries **public** repos: list private repos under `repos`, with a token that can read them. A repo listed under `repos` is skipped in its org's feed, so its own settings apply and nothing is pitched twice.
 
-**Supported event types:** `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`
+**Supported event types:** `push`, `pull_request`, `release`, `workflow_run`, `issue_comment`, `issues`
+
+`issues` is opt-in (not in the defaults) and pitches state changes only: `opened`, `closed` and `reopened`, not `edited`, `labeled`, `assigned` and the like. The title is `Issue #12: <title> (<action>) on owner/repo`, the body `opened by <user>` or `closed by <user> (completed|not_planned)`. Severity: `opened` info, `closed` success when completed and info otherwise, `reopened` warning. Issues of pull requests come as `pull_request` events, so nothing is counted twice.
 
 `issue_comment` is opt-in (not in the defaults) and pitches newly created comments only, not edits. Under `repos`, comments are read from `GET /repos/{owner}/{repo}/issues/comments?since=…&sort=created&direction=asc` instead of the event feed, because the Events API lists an event 30 seconds to 6 hours after it happened (#71). Each poll costs one call for the comments (more only past 100 comments) plus one per issue not yet cached (title and labels, cached for an hour). Comment events in the repo's event feed are dropped, so nothing is pitched twice; on start, no backlog is pitched. A repo watching only `issue_comment` does not poll its event feed at all. Under `orgs`, `issue_comment` still comes from the org event feed, with its delay.
 

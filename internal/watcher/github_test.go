@@ -19,6 +19,7 @@ func TestEventTypeToKind(t *testing.T) {
 		{"ReleaseEvent", EventRelease},
 		{"WorkflowRunEvent", EventWorkflowRun},
 		{"IssueCommentEvent", EventIssueComment},
+		{"IssuesEvent", EventIssues},
 		{"ForkEvent", ""},
 		{"", ""},
 	}
@@ -246,6 +247,13 @@ func TestWantsPayload(t *testing.T) {
 		{"pr closed", makeEvent("PullRequestEvent", "r", []byte(`{"action":"closed","pull_request":{"number":1}}`)), open, true},
 		{"pr labeled", makeEvent("PullRequestEvent", "r", []byte(`{"action":"labeled","pull_request":{"number":1}}`)), open, false},
 		{"pr assigned", makeEvent("PullRequestEvent", "r", []byte(`{"action":"assigned","pull_request":{"number":1}}`)), open, false},
+		{"issue opened", issuesEvent("opened", "", "bug"), open, true},
+		{"issue closed", issuesEvent("closed", "completed"), open, true},
+		{"issue reopened", issuesEvent("reopened", ""), open, true},
+		{"issue labeled", issuesEvent("labeled", ""), open, false},
+		{"issue edited", issuesEvent("edited", ""), open, false},
+		{"issue with label", issuesEvent("opened", "", "daily-pr-report"), filtered, true},
+		{"issue without label", issuesEvent("opened", "", "bug"), filtered, false},
 	}
 
 	for _, tt := range tests {
@@ -323,5 +331,77 @@ func TestNewGitHubWatcher_WithPersistedDedup(t *testing.T) {
 	// firstRun should be false since dedup has state for this repo.
 	if w.firstRun["org/repo"] {
 		t.Error("expected firstRun to be false when dedup has persisted state")
+	}
+}
+
+func issuesEvent(action, stateReason string, labels ...string) *github.Event {
+	var ls []*github.Label
+	for _, l := range labels {
+		ls = append(ls, &github.Label{Name: github.Ptr(l)})
+	}
+	issue := &github.Issue{
+		Number:  github.Ptr(12),
+		Title:   github.Ptr("scout: messages endpoint"),
+		HTMLURL: github.Ptr("https://github.com/org/repo/issues/12"),
+		Labels:  ls,
+	}
+	if stateReason != "" {
+		issue.StateReason = github.Ptr(stateReason)
+	}
+	raw, _ := json.Marshal(github.IssuesEvent{Action: github.Ptr(action), Issue: issue})
+	return makeEvent("IssuesEvent", "alice", raw)
+}
+
+func TestEventToMessage_Issues(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+
+	tests := []struct {
+		name        string
+		action      string
+		stateReason string
+		body        string
+		severity    string
+	}{
+		{"opened", "opened", "", "opened by alice", "info"},
+		{"closed completed", "closed", "completed", "closed by alice (completed)", "success"},
+		{"closed not planned", "closed", "not_planned", "closed by alice (not_planned)", "info"},
+		{"reopened", "reopened", "", "reopened by alice", "warning"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := eventToMessage(issuesEvent(tt.action, tt.stateReason), repo)
+
+			wantTitle := "Issue #12: scout: messages endpoint (" + tt.action + ") on org/repo"
+			if msg.Title != wantTitle {
+				t.Errorf("title = %q, want %q", msg.Title, wantTitle)
+			}
+			if msg.Message != tt.body {
+				t.Errorf("body = %q, want %q", msg.Message, tt.body)
+			}
+			if msg.Severity != tt.severity {
+				t.Errorf("severity = %q, want %q", msg.Severity, tt.severity)
+			}
+			if msg.Tags != "github,issues,org/repo" {
+				t.Errorf("tags = %q", msg.Tags)
+			}
+			if msg.URL != "https://github.com/org/repo/issues/12" {
+				t.Errorf("url = %q", msg.URL)
+			}
+		})
+	}
+}
+
+func TestEventToMessage_IssuesWithoutTitle(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+	event := makeEvent("IssuesEvent", "alice", []byte(`{"action":"opened","issue":{"number":3}}`))
+
+	msg := eventToMessage(event, repo)
+
+	if msg.Title != "Issue #3 (opened) on org/repo" {
+		t.Errorf("title = %q", msg.Title)
+	}
+	if msg.URL != "https://github.com/org/repo/issues/3" {
+		t.Errorf("url = %q", msg.URL)
 	}
 }
