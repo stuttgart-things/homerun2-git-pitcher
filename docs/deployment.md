@@ -113,12 +113,12 @@ stringData:
   GITHUB_TOKEN: "ghp_your-github-pat"
 ```
 
-**GitHub PAT permissions:** the watcher only calls `Activity.ListRepositoryEvents`. Minimum scopes:
+**GitHub PAT permissions:** the watcher only reads: the event feeds (`Activity.ListRepositoryEvents`, `Activity.ListEventsForOrganization`), pull requests and commit compares for slim event payloads, and, for repos watching `issue_comment`, `GET /repos/{owner}/{repo}/issues/comments` plus the commented issues. Minimum scopes:
 
 - **Classic:** `public_repo` (public repos) or `repo` (also covers private).
 - **Fine-grained** (recommended):
   - Repository access: the org/repos you watch.
-  - Permissions: `Metadata: Read`, `Contents: Read`. Add `Actions: Read` only if you need `workflow_run` events on private repos.
+  - Permissions: `Metadata: Read`, `Contents: Read`. Add `Actions: Read` only if you need `workflow_run` events on private repos, and `Issues: Read` if you watch `issue_comment` on private repos.
 
 No write permissions needed anywhere.
 

@@ -100,6 +100,7 @@ When the watcher is configured, it automatically pitches events from GitHub to R
 | Workflow success | `Workflow {name} success on {owner/repo}` | success | Run URL |
 | Workflow failure | `Workflow {name} failure on {owner/repo}` | error | Run URL |
 | Workflow cancelled | `Workflow {name} cancelled on {owner/repo}` | warning | Run URL |
+| Issue comment created | `Comment on #{n}: {issue title} on {owner/repo}` | info, or `<!-- homerun2:severity=… -->` | Comment URL |
 
 All watcher-generated messages include:
 

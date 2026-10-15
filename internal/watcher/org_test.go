@@ -45,7 +45,7 @@ github:
 		t.Errorf("expected 2 events, got %v", org.Events)
 	}
 	keys := cfg.DedupKeys()
-	if len(keys) != 2 || keys[0] != "stuttgart-things/stuttgart-things" || keys[1] != "org:stuttgart-things" {
+	if len(keys) != 3 || keys[0] != "stuttgart-things/stuttgart-things" || keys[1] != "comments:stuttgart-things/stuttgart-things" || keys[2] != "org:stuttgart-things" {
 		t.Errorf("unexpected dedup keys: %v", keys)
 	}
 }
