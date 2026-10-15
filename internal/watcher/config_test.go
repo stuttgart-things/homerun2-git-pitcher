@@ -101,12 +101,37 @@ github:
 	if cfg.GitHub.Repos[0].Interval != 5*time.Minute {
 		t.Errorf("expected default 5m interval, got %s", cfg.GitHub.Repos[0].Interval)
 	}
-	// Default events (all but the opt-in issue_comment)
+	// Default events (all but the opt-in issue_comment and issues)
 	if len(cfg.GitHub.Repos[0].Events) != 4 {
 		t.Errorf("expected 4 default events, got %d", len(cfg.GitHub.Repos[0].Events))
 	}
 	if cfg.GitHub.Repos[0].WatchesEvent(EventIssueComment) {
 		t.Error("issue_comment must not be a default event")
+	}
+	if cfg.GitHub.Repos[0].WatchesEvent(EventIssues) {
+		t.Error("issues must not be a default event")
+	}
+}
+
+func TestLoadWatchConfigIssues(t *testing.T) {
+	yaml := `
+github:
+  token: tok
+  orgs:
+    - name: org
+      events: [pull_request, issues]
+`
+	path := filepath.Join(t.TempDir(), "watch.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := LoadWatchConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cfg.GitHub.Orgs[0].Events; len(got) != 2 || got[1] != EventIssues {
+		t.Errorf("expected events [pull_request issues], got %v", got)
 	}
 }
 
