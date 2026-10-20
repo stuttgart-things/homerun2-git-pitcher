@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	charm.land/bubbletea/v2 v2.0.6
-	charm.land/lipgloss/v2 v2.0.3
+	charm.land/lipgloss/v2 v2.0.6
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/google/go-github/v87 v87.0.0
 	github.com/redis/go-redis/v9 v9.22.0
