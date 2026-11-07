@@ -193,6 +193,27 @@ curl -s http://localhost:8080/health | jq .
 | Release | `Release {tag} on {repo}` | success | release URL |
 | Workflow Run | `Workflow {name} {conclusion}` | success / error / warning | run URL |
 | Issue Comment | `Comment on #{n}: {issue title} on {repo}` | info, or set by the comment's marker | comment URL |
+| Issues | `Issue #{n}: {title} ({action}) on {repo}`; only `opened`, `closed`, `reopened` | info / success (completed) / warning (reopened) | issue URL |
+
+### Tags
+
+The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching. After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags for templates and card facts. Empty values are left out; a comma in a value becomes `_`.
+
+| GitHub Event | key=value tags |
+|-------------|----------------|
+| Push | `repo`, `branch`, `actor` |
+| Pull Request | `repo`, `number`, `action` (`opened`, `reopened`, `ready_for_review`, `closed`, `merged`; a closed and merged PR is `merged`), `head`, `base`, `actor` (the merger for `merged`) |
+| Release | `repo`, `action`, `tag`, `actor` |
+| Workflow Run | `repo`, `workflow`, `conclusion`, `branch`, `actor` |
+| Issue Comment | `repo`, `number`, `action`, `actor` |
+| Issues | `repo`, `number`, `action`, `actor` |
+
+A merged pull request, for example:
+
+```
+tags: github,pull_request,stuttgart-things/stuttgart-things,repo=stuttgart-things/stuttgart-things,number=4404,action=merged,head=feat/platform-sthings-teams-routing,base=main,actor=patrick-hermann-sva
+url:  https://github.com/stuttgart-things/stuttgart-things/pull/4404
+```
 
 ## Configuration reference
 

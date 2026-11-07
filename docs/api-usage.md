@@ -94,7 +94,7 @@ When the watcher is configured, it automatically pitches events from GitHub to R
 |-------------|-------------|----------|---------------|
 | Push | `Push to {branch} on {owner/repo}` | info | Compare URL |
 | Pull Request opened | `PR #{n}: {title} (opened)` | info | PR URL |
-| Pull Request merged | `PR #{n}: {title} (closed)` | success | PR URL |
+| Pull Request merged | `PR #{n}: {title} (merged)`, message `PR merged by {login}: {head} → {base}` | success | PR URL |
 | Pull Request closed | `PR #{n}: {title} (closed)` | warning | PR URL |
 | Release | `Release {tag} on {owner/repo}` | success | Release URL |
 | Workflow success | `Workflow {name} success on {owner/repo}` | success | Run URL |
@@ -106,4 +106,29 @@ All watcher-generated messages include:
 
 - `system`: `homerun2-git-pitcher`
 - `author`: GitHub actor login
-- `tags`: `github,{event_type},{owner/repo}`
+- `tags`: `github,{event_type},{owner/repo}`, then `key=value` tags such as `repo=`, `number=`, `action=`, `head=`, `base=`, `actor=` (see below)
+- `url`: the event's page on GitHub (`html_url`)
+
+### Tags
+
+The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching; title and message are unchanged too (`message_contains: ["PR merged by"]`). After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags. Empty values are left out; a comma in a value becomes `_`.
+
+| GitHub Event | key=value tags |
+|-------------|----------------|
+| Push | `repo`, `branch`, `actor` |
+| Pull Request | `repo`, `number`, `action` (`opened`, `reopened`, `ready_for_review`, `closed`, `merged`; a closed and merged PR is `merged`), `head`, `base`, `actor` (the merger for `merged`) |
+| Release | `repo`, `action`, `tag`, `actor` |
+| Workflow Run | `repo`, `workflow`, `conclusion`, `branch`, `actor` |
+| Issue Comment | `repo`, `number`, `action`, `actor` |
+| Issues | `repo`, `number`, `action`, `actor` |
+
+A merged pull request, for example:
+
+```json
+{
+  "title": "PR #4404: feat(platform-sthings): route the catcher's Teams outputs to their channels (merged) on stuttgart-things/stuttgart-things",
+  "message": "PR merged by patrick-hermann-sva: feat/platform-sthings-teams-routing → main",
+  "tags": "github,pull_request,stuttgart-things/stuttgart-things,repo=stuttgart-things/stuttgart-things,number=4404,action=merged,head=feat/platform-sthings-teams-routing,base=main,actor=patrick-hermann-sva",
+  "url": "https://github.com/stuttgart-things/stuttgart-things/pull/4404"
+}
+```

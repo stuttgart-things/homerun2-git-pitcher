@@ -1,0 +1,40 @@
+version: 3
+
+tasks:
+  create:
+    desc: Create new dagger module
+    vars:
+      MODULE_TYPE:
+        sh: 'gum choose "Generic dagger module" "Dagger module for dedicated service" --header "MODULE_TYPE: "'
+      MODULE_NAME:
+        sh: 'gum input --prompt "MODULE NAME: " --placeholder "Module name"'
+      MODULE_PATH:
+        sh: 'gum input --prompt "MODULE PATH: " --placeholder "Module path" --value="{{ .MODULE_NAME }}"'
+      SDK:
+        sh: 'gum choose "go" "python"'
+      IS_GENERIC:
+        sh: |
+          if [ "{{ .MODULE_TYPE }}" = "Generic dagger module" ]; then
+            echo "true"
+          else
+            echo "false"
+          fi
+    cmds:
+      - dagger init --sdk={{ .SDK }} --source=./{{ .MODULE_PATH }} --name={{ .MODULE_NAME }}
+      - |
+        if [ "{{ .IS_GENERIC }}" = "true" ]; then
+          jq '.source = "."' dagger.json > tmp.json && mv tmp.json dagger.json
+          mv dagger.json ./{{ .MODULE_PATH }}/dagger.json
+        fi
+
+  install-update-module-dependency:
+    desc: Install or update a dagger module dependency
+    vars:
+      DAGGER_DIR:
+        sh: gum input --placeholder "Dagger directory path" --value="./.dagger"
+      MODULE_URL:
+        sh: 'gum input --placeholder "Module URL (e.g. github.com/stuttgart-things/dagger/go@v0.70.0)"'
+    cmds:
+      - |
+        cd {{ .DAGGER_DIR }} && dagger install {{ .MODULE_URL }}
+        cd {{ .DAGGER_DIR }} && dagger develop

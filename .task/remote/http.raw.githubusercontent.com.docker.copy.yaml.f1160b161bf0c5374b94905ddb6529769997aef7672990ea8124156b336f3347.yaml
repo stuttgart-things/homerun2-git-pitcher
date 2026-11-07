@@ -1,0 +1,53 @@
+---
+version: 3
+vars:
+  DAGGER_MODULE: github.com/stuttgart-things/dagger/crane
+  SOURCE_IMAGE: ttl.sh/example:latest
+  TARGET_IMAGE: ghcr.io/stuttgart-things/example:latest
+  TARGET_USERNAME: ""
+  TARGET_PASSWORD: env:GITHUB_TOKEN # pragma: allowlist secret
+
+tasks:
+  copy-image-interactive:
+    desc: Copy container image between registries with interactive prompts
+    vars:
+      SOURCE:
+        sh: 'gum input --placeholder "Source image reference" --value "{{ .SOURCE_IMAGE }}" --header "SOURCE IMAGE"'
+      TARGET:
+        sh: 'gum input --placeholder "Target image reference" --value "{{ .TARGET_IMAGE }}" --header "TARGET IMAGE"'
+      USERNAME:
+        sh: 'gum input --placeholder "Target registry username" --value "{{ .TARGET_USERNAME }}" --header "TARGET USERNAME"'
+      PASSWORD:
+        sh: 'gum input --placeholder "Target registry password (e.g., env:GITHUB_TOKEN)" --value "{{ .TARGET_PASSWORD }}" --header "TARGET PASSWORD"'
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE }} copy \
+        --source "{{ .SOURCE }}" \
+        --target "{{ .TARGET }}" \
+        {{- if .USERNAME }}
+        --target-username "{{ .USERNAME }}" \
+        {{- end }}
+        {{- if .PASSWORD }}
+        --target-password "{{ .PASSWORD }}" \
+        {{- end }}
+        -vv --progress plain
+
+  copy-image:
+    desc: Copy container image between registries (non-interactive, vars only)
+    vars:
+      SOURCE: '{{ .SOURCE | default .SOURCE_IMAGE }}'
+      TARGET: '{{ .TARGET | default .TARGET_IMAGE }}'
+      USERNAME: '{{ .USERNAME | default .TARGET_USERNAME }}'
+      PASSWORD: '{{ .PASSWORD | default .TARGET_PASSWORD }}'
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE }} copy \
+        --source "{{ .SOURCE }}" \
+        --target "{{ .TARGET }}" \
+        {{- if .USERNAME }}
+        --target-username "{{ .USERNAME }}" \
+        {{- end }}
+        {{- if .PASSWORD }}
+        --target-password "{{ .PASSWORD }}" \
+        {{- end }}
+        -vv --progress plain

@@ -189,7 +189,7 @@ func TestEventToMessage_IssueComment(t *testing.T) {
 	if msg.Severity != "info" {
 		t.Errorf("expected severity 'info' without marker, got %q", msg.Severity)
 	}
-	if msg.Tags != "github,issue_comment,org/repo" {
+	if msg.Tags != "github,issue_comment,org/repo,repo=org/repo,number=7,action=created,actor=reporter" {
 		t.Errorf("unexpected tags: %q", msg.Tags)
 	}
 	if msg.URL != "https://github.com/org/repo/issues/7#issuecomment-1" {
@@ -206,7 +206,7 @@ func TestEventToMessage_IssueCommentMarkers(t *testing.T) {
 	if msg.Severity != "warning" {
 		t.Errorf("expected severity 'warning' from marker, got %q", msg.Severity)
 	}
-	if msg.Tags != "github,issue_comment,org/repo,morning,daily" {
+	if msg.Tags != "github,issue_comment,org/repo,morning,daily,repo=org/repo,number=7,action=created,actor=reporter" {
 		t.Errorf("expected marker tags appended, got %q", msg.Tags)
 	}
 	if msg.Message != "## Morning report\n#3520 checks red" {
@@ -382,8 +382,8 @@ func TestEventToMessage_Issues(t *testing.T) {
 			if msg.Severity != tt.severity {
 				t.Errorf("severity = %q, want %q", msg.Severity, tt.severity)
 			}
-			if msg.Tags != "github,issues,org/repo" {
-				t.Errorf("tags = %q", msg.Tags)
+			if want := "github,issues,org/repo,repo=org/repo,number=12,action=" + tt.action + ",actor=alice"; msg.Tags != want {
+				t.Errorf("tags = %q, want %q", msg.Tags, want)
 			}
 			if msg.URL != "https://github.com/org/repo/issues/12" {
 				t.Errorf("url = %q", msg.URL)
@@ -403,5 +403,147 @@ func TestEventToMessage_IssuesWithoutTitle(t *testing.T) {
 	}
 	if msg.URL != "https://github.com/org/repo/issues/3" {
 		t.Errorf("url = %q", msg.URL)
+	}
+}
+
+// prEvent builds a pull request event of action by actor, from user's
+// branch feat/x into main.
+func prEvent(action, actor string, merged bool, mergedBy string) *github.Event {
+	pr := &github.PullRequest{
+		Number:  github.Ptr(4404),
+		Title:   github.Ptr("feat: route teams"),
+		HTMLURL: github.Ptr("https://github.com/org/repo/pull/4404"),
+		User:    &github.User{Login: github.Ptr("dev")},
+		Merged:  github.Ptr(merged),
+		Head:    &github.PullRequestBranch{Ref: github.Ptr("feat/x")},
+		Base:    &github.PullRequestBranch{Ref: github.Ptr("main")},
+	}
+	if mergedBy != "" {
+		pr.MergedBy = &github.User{Login: github.Ptr(mergedBy)}
+	}
+	raw, _ := json.Marshal(github.PullRequestEvent{Action: github.Ptr(action), PullRequest: pr})
+	return makeEvent("PullRequestEvent", actor, raw)
+}
+
+// TestEventToMessage_PullRequestTags checks the key=value tags and url of
+// pull request messages (#78), and that title, message and the plain tags
+// stay as they were: filters match on tags_contain [pull_request] and
+// message_contains ["PR merged by"].
+func TestEventToMessage_PullRequestTags(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+	const plain = "github,pull_request,org/repo,"
+
+	tests := []struct {
+		name    string
+		event   *github.Event
+		title   string
+		message string
+		tags    string
+	}{
+		{
+			"merged", prEvent("merged", "maintainer", true, ""),
+			"PR #4404: feat: route teams (merged) on org/repo",
+			"PR merged by maintainer: feat/x → main",
+			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer",
+		},
+		{
+			"closed and merged", prEvent("closed", "bot", true, "maintainer"),
+			"PR #4404: feat: route teams (closed) on org/repo",
+			"PR merged by maintainer: feat/x → main",
+			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer",
+		},
+		{
+			"closed", prEvent("closed", "maintainer", false, ""),
+			"PR #4404: feat: route teams (closed) on org/repo",
+			"PR closed by dev: feat/x → main",
+			plain + "repo=org/repo,number=4404,action=closed,head=feat/x,base=main,actor=maintainer",
+		},
+		{
+			"opened", prEvent("opened", "dev", false, ""),
+			"PR #4404: feat: route teams (opened) on org/repo",
+			"PR opened by dev: feat/x → main",
+			plain + "repo=org/repo,number=4404,action=opened,head=feat/x,base=main,actor=dev",
+		},
+		{
+			"reopened", prEvent("reopened", "dev", false, ""),
+			"PR #4404: feat: route teams (reopened) on org/repo",
+			"PR reopened by dev: feat/x → main",
+			plain + "repo=org/repo,number=4404,action=reopened,head=feat/x,base=main,actor=dev",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := eventToMessage(tt.event, repo)
+			if msg.Title != tt.title {
+				t.Errorf("title = %q, want %q", msg.Title, tt.title)
+			}
+			if msg.Message != tt.message {
+				t.Errorf("message = %q, want %q", msg.Message, tt.message)
+			}
+			if msg.Tags != tt.tags {
+				t.Errorf("tags = %q, want %q", msg.Tags, tt.tags)
+			}
+			if msg.URL != "https://github.com/org/repo/pull/4404" {
+				t.Errorf("url = %q", msg.URL)
+			}
+		})
+	}
+}
+
+func TestEventToMessage_OtherEventTags(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+
+	push, _ := json.Marshal(github.PushEvent{
+		Ref:     github.Ptr("refs/heads/fix,comma"),
+		Pusher:  &github.CommitAuthor{Name: github.Ptr("testuser")},
+		Compare: github.Ptr("https://github.com/org/repo/compare/a...b"),
+	})
+	release, _ := json.Marshal(github.ReleaseEvent{
+		Action:  github.Ptr("published"),
+		Release: &github.RepositoryRelease{TagName: github.Ptr("v1.2.3")},
+	})
+	run, _ := json.Marshal(github.WorkflowRunEvent{
+		WorkflowRun: &github.WorkflowRun{
+			Name:       github.Ptr("CI"),
+			Conclusion: github.Ptr("failure"),
+			HeadBranch: github.Ptr("main"),
+			HTMLURL:    github.Ptr("https://github.com/org/repo/actions/runs/123"),
+		},
+	})
+
+	tests := []struct {
+		name  string
+		event *github.Event
+		tags  string
+		url   string
+	}{
+		{
+			"push", makeEvent("PushEvent", "testuser", push),
+			"github,push,org/repo,repo=org/repo,branch=fix_comma,actor=testuser",
+			"https://github.com/org/repo/compare/a...b",
+		},
+		{
+			"release", makeEvent("ReleaseEvent", "releaser", release),
+			"github,release,org/repo,repo=org/repo,action=published,tag=v1.2.3,actor=releaser",
+			"https://github.com/org/repo/releases/tag/v1.2.3",
+		},
+		{
+			"workflow run", makeEvent("WorkflowRunEvent", "ci-bot", run),
+			"github,workflow_run,org/repo,repo=org/repo,workflow=CI,conclusion=failure,branch=main,actor=ci-bot",
+			"https://github.com/org/repo/actions/runs/123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := eventToMessage(tt.event, repo)
+			if msg.Tags != tt.tags {
+				t.Errorf("tags = %q, want %q", msg.Tags, tt.tags)
+			}
+			if msg.URL != tt.url {
+				t.Errorf("url = %q, want %q", msg.URL, tt.url)
+			}
+		})
 	}
 }
