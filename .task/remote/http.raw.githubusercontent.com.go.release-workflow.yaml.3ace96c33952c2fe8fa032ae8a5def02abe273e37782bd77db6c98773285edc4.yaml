@@ -1,0 +1,154 @@
+---
+version: 3
+
+vars:
+  DAGGER_RELEASE_MODULE: '{{ .DAGGER_RELEASE_MODULE | default "github.com/stuttgart-things/dagger/release@v0.82.1" }}'
+  DAGGER_GO_MODULE: '{{ .DAGGER_GO_MODULE | default "github.com/stuttgart-things/dagger/go@v0.82.1" }}'
+  DAGGER_CRANE_MODULE: '{{ .DAGGER_CRANE_MODULE | default "github.com/stuttgart-things/dagger/crane@v0.82.1" }}'
+  DAGGER_KCL_MODULE: '{{ .DAGGER_KCL_MODULE | default "github.com/stuttgart-things/dagger/kcl@v0.82.1" }}'
+  GITHUB_TOKEN_ENV: '{{ .GITHUB_TOKEN_ENV | default "GITHUB_TOKEN" }}'
+  SRC: '{{ .SRC | default "." }}'
+  RELEASER_VERSION: '{{ .RELEASER_VERSION | default "v2.13.3" }}'
+  SOURCE_IMAGE: '{{ .SOURCE_IMAGE | default "" }}'
+  TARGET_IMAGE_REPO: '{{ .TARGET_IMAGE_REPO | default "" }}'
+  TARGET_USERNAME: '{{ .TARGET_USERNAME | default "" }}'
+  KCL_SOURCE_DIR: '{{ .KCL_SOURCE_DIR | default "deployment" }}'
+  KCL_PROFILE_FILE: '{{ .KCL_PROFILE_FILE | default "" }}'
+  KUSTOMIZE_OCI_REPO: '{{ .KUSTOMIZE_OCI_REPO | default "" }}'
+  GORELEASER_LOG_PATH: '{{ .GORELEASER_LOG_PATH | default "/tmp/goreleaser.log" }}'
+  KUSTOMIZE_BASE_EXPORT_PATH: '{{ .KUSTOMIZE_BASE_EXPORT_PATH | default "/tmp/kustomize-base" }}'
+  OVERLAY_PATH: '{{ .OVERLAY_PATH | default "" }}'
+  VERSION: '{{ .VERSION | default "" }}'
+
+tasks:
+  semantic-release:
+    desc: Run semantic-release via Dagger
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_RELEASE_MODULE }} semantic \
+          --src {{ .SRC }} \
+          --token env:{{ .GITHUB_TOKEN_ENV }} \
+          --progress plain
+
+  goreleaser:
+    desc: Run goreleaser to build binaries and upload to GitHub release
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_GO_MODULE }} release \
+          --src {{ .SRC }} \
+          --token env:{{ .GITHUB_TOKEN_ENV }} \
+          --releaser-version {{ .RELEASER_VERSION }} \
+          export --path={{ .GORELEASER_LOG_PATH }} \
+          --progress plain
+
+  stage-image:
+    desc: Copy image from source to target repo via Dagger crane
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_CRANE_MODULE }} copy \
+          --source "{{ .SOURCE_IMAGE }}" \
+          --target "{{ .TARGET_IMAGE_REPO }}:{{ .VERSION }}" \
+          --target-username "{{ .TARGET_USERNAME }}" \
+          --target-password env:{{ .GITHUB_TOKEN_ENV }} \
+          --progress plain
+
+  push-kustomize-base:
+    desc: Render kustomize base and push as OCI artifact
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_KCL_MODULE }} push-kustomize-base \
+          --source "{{ .KCL_SOURCE_DIR }}" \
+          --parameters-file "{{ .KCL_PROFILE_FILE }}" \
+          --address "{{ .KUSTOMIZE_OCI_REPO }}" \
+          --tag "{{ .VERSION }}" \
+          --user env:GITHUB_USER \
+          --password env:{{ .GITHUB_TOKEN_ENV }} \
+          --progress plain
+
+  release-local:
+    desc: Full release pipeline (local, interactive)
+    cmds:
+      - task: semantic-release
+      - |
+        VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
+        if [ -z "$VERSION" ]; then
+          echo "No version tag found after semantic-release. Aborting."
+          exit 1
+        fi
+        echo "Released version: $VERSION"
+        echo "$VERSION" > /tmp/.release-version
+      - task: goreleaser
+      - |
+        VERSION=$(cat /tmp/.release-version)
+        SOURCE_IMAGE=$(gum input --placeholder "Enter source image (e.g., ghcr.io/org/app:main)" --header "SOURCE IMAGE TO STAGE")
+        if [ -z "$SOURCE_IMAGE" ]; then
+          echo "No source image provided. Skipping image staging."
+          exit 0
+        fi
+        echo "$SOURCE_IMAGE" > /tmp/.release-source-image
+      - task: stage-image
+        vars:
+          VERSION:
+            sh: cat /tmp/.release-version
+          SOURCE_IMAGE:
+            sh: cat /tmp/.release-source-image
+      - task: push-kustomize-base
+        vars:
+          VERSION:
+            sh: cat /tmp/.release-version
+
+  deploy-kustomize-base:
+    desc: Pull kustomize base from OCI and apply to cluster
+    cmds:
+      - |
+        if [ -z "{{ .VERSION }}" ]; then
+          echo "VERSION is required. Usage: task release:deploy-kustomize-base VERSION=v1.0.0"
+          exit 1
+        fi
+
+        echo "Pulling kustomize base..."
+        echo "Source: {{ .KUSTOMIZE_OCI_REPO }}:{{ .VERSION }}"
+        echo "Target: {{ .KUSTOMIZE_BASE_EXPORT_PATH }}"
+        echo ""
+
+        rm -rf "{{ .KUSTOMIZE_BASE_EXPORT_PATH }}"
+        mkdir -p "{{ .KUSTOMIZE_BASE_EXPORT_PATH }}"
+
+        oras pull "{{ .KUSTOMIZE_OCI_REPO }}:{{ .VERSION }}" \
+          -o "{{ .KUSTOMIZE_BASE_EXPORT_PATH }}"
+
+        echo "Kustomize base pulled successfully!"
+        ls -la "{{ .KUSTOMIZE_BASE_EXPORT_PATH }}/"
+      - |
+        APPLY_PATH="{{ .KUSTOMIZE_BASE_EXPORT_PATH }}"
+        if [ -n "{{ .OVERLAY_PATH }}" ]; then
+          APPLY_PATH="{{ .OVERLAY_PATH }}"
+        fi
+
+        echo ""
+        echo "Applying: ${APPLY_PATH}"
+        kubectl apply -k "${APPLY_PATH}"
+        echo ""
+        echo "Applied successfully!"
+
+  release-github:
+    desc: Full release pipeline (non-interactive, for CI)
+    cmds:
+      - task: semantic-release
+      - |
+        VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
+        if [ -z "$VERSION" ]; then
+          echo "No version tag found after semantic-release. Aborting."
+          exit 1
+        fi
+        echo "Released version: $VERSION"
+        echo "$VERSION" > /tmp/.release-version
+      - task: goreleaser
+      - task: stage-image
+        vars:
+          VERSION:
+            sh: cat /tmp/.release-version
+      - task: push-kustomize-base
+        vars:
+          VERSION:
+            sh: cat /tmp/.release-version

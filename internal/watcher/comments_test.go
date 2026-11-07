@@ -214,7 +214,7 @@ func TestFetchComments_MessageUnchanged(t *testing.T) {
 	if msg.Severity != "warning" {
 		t.Errorf("expected severity from marker, got %q", msg.Severity)
 	}
-	if msg.Tags != "github,issue_comment,org/repo,morning,daily" {
+	if msg.Tags != "github,issue_comment,org/repo,morning,daily,repo=org/repo,number=7,action=created,actor=reporter" {
 		t.Errorf("unexpected tags: %q", msg.Tags)
 	}
 	wantBody := string([]rune("## Morning report\n" + strings.Repeat("ä", maxCommentLen))[:maxCommentLen]) + "..."

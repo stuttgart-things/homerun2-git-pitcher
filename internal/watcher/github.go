@@ -494,12 +494,15 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 		actor = event.GetActor().GetLogin()
 	}
 
-	title, body, severity, url := parseEventPayload(event, repo)
+	title, body, severity, url, kv := parseEventPayload(event, repo)
 
 	tags := fmt.Sprintf("github,%s,%s", kind, repo.FullName())
 	if kind == EventIssueComment {
 		body, tags = commentTags(body, tags)
 	}
+	// key=value tags come after the plain ones, which stay as they were:
+	// filters match on them (tags_contain: [pull_request]) (#78).
+	tags += kv.String()
 
 	return homerun.Message{
 		Title:     title,
@@ -513,17 +516,52 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 	}
 }
 
-// parseEventPayload extracts title, body, severity, and URL from the event
-// payload based on event type. Falls back to generic info if parsing fails.
-func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, severity, url string) {
+// kvTags are the key=value tags of a message (#78), in the order added,
+// for templates that pick fields such as number= or head= from the tags.
+type kvTags []string
+
+// add appends key=value, or nothing if value is empty. A comma in value
+// would split the tag, so it becomes an underscore.
+func (t *kvTags) add(key, value string) {
+	if value == "" {
+		return
+	}
+	*t = append(*t, key+"="+strings.ReplaceAll(value, ",", "_"))
+}
+
+// String returns the tags with a leading comma each, for appending to the
+// plain tags, or "" if there are none.
+func (t kvTags) String() string {
+	if len(t) == 0 {
+		return ""
+	}
+	return "," + strings.Join(t, ",")
+}
+
+// prAction is the state change a pull request event reports: merged for a
+// closed pull request that was merged (older payloads), else the action.
+func prAction(action string, pr *github.PullRequest) string {
+	if action == "closed" && pr.GetMerged() {
+		return "merged"
+	}
+	return action
+}
+
+// parseEventPayload extracts title, body, severity, URL and the key=value
+// tags from the event payload based on event type. Falls back to generic
+// info if parsing fails.
+func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, severity, url string, kv kvTags) {
 	repoURL := fmt.Sprintf("https://github.com/%s", repo.FullName())
 	severity = "info"
 	url = repoURL
+	kv.add("repo", repo.FullName())
+	actor := event.GetActor().GetLogin()
 
 	payload, err := event.ParsePayload()
 	if err != nil {
 		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
 		body = fmt.Sprintf("Event %s (payload parse error: %v)", event.GetID(), err)
+		kv.add("actor", actor)
 		return
 	}
 
@@ -547,8 +585,12 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		url = p.GetCompare()
 		if url == "" {
 			url = repoURL
-
 		}
+		kv.add("branch", branch)
+		if actor == "" {
+			actor = p.GetPusher().GetName()
+		}
+		kv.add("actor", actor)
 
 	case *github.PullRequestEvent:
 		pr := p.GetPullRequest()
@@ -589,6 +631,19 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		if url == "" {
 			url = fmt.Sprintf("%s/pull/%d", repoURL, pr.GetNumber())
 		}
+		state := prAction(action, pr)
+		if state == "merged" {
+			actor = mergedBy(pr, event)
+		} else if actor == "" {
+			actor = author
+		}
+		if pr.GetNumber() != 0 {
+			kv.add("number", fmt.Sprint(pr.GetNumber()))
+		}
+		kv.add("action", state)
+		kv.add("head", pr.GetHead().GetRef())
+		kv.add("base", pr.GetBase().GetRef())
+		kv.add("actor", actor)
 
 	case *github.ReleaseEvent:
 		rel := p.GetRelease()
@@ -602,6 +657,15 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		}
 		severity = "success"
 		url = rel.GetHTMLURL()
+		if url == "" && rel.GetTagName() != "" {
+			url = fmt.Sprintf("%s/releases/tag/%s", repoURL, rel.GetTagName())
+		}
+		if actor == "" {
+			actor = rel.GetAuthor().GetLogin()
+		}
+		kv.add("action", p.GetAction())
+		kv.add("tag", rel.GetTagName())
+		kv.add("actor", actor)
 
 	case *github.WorkflowRunEvent:
 		run := p.GetWorkflowRun()
@@ -621,6 +685,16 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 			severity = "warning"
 		}
 		url = run.GetHTMLURL()
+		if url == "" {
+			url = repoURL + "/actions"
+		}
+		if actor == "" {
+			actor = run.GetActor().GetLogin()
+		}
+		kv.add("workflow", run.GetName())
+		kv.add("conclusion", conclusion)
+		kv.add("branch", run.GetHeadBranch())
+		kv.add("actor", actor)
 
 	case *github.IssueCommentEvent:
 		issue := p.GetIssue()
@@ -628,6 +702,20 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		title = fmt.Sprintf("Comment on #%d: %s on %s", issue.GetNumber(), issue.GetTitle(), repo.FullName())
 		body, severity = commentSeverity(comment.GetBody())
 		url = comment.GetHTMLURL()
+		if url == "" {
+			url = issue.GetHTMLURL()
+		}
+		if url == "" && issue.GetNumber() != 0 {
+			url = fmt.Sprintf("%s/issues/%d", repoURL, issue.GetNumber())
+		}
+		if actor == "" {
+			actor = comment.GetUser().GetLogin()
+		}
+		if issue.GetNumber() != 0 {
+			kv.add("number", fmt.Sprint(issue.GetNumber()))
+		}
+		kv.add("action", p.GetAction())
+		kv.add("actor", actor)
 
 	case *github.IssuesEvent:
 		issue := p.GetIssue()
@@ -654,10 +742,16 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		if url == "" {
 			url = fmt.Sprintf("%s/issues/%d", repoURL, issue.GetNumber())
 		}
+		if issue.GetNumber() != 0 {
+			kv.add("number", fmt.Sprint(issue.GetNumber()))
+		}
+		kv.add("action", action)
+		kv.add("actor", actor)
 
 	default:
 		title = fmt.Sprintf("[%s] %s on %s", eventTypeToKind(event.GetType()), event.GetType(), repo.FullName())
 		body = fmt.Sprintf("Event %s", event.GetID())
+		kv.add("actor", actor)
 	}
 
 	return

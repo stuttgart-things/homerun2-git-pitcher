@@ -1,0 +1,37 @@
+---
+version: "3"
+vars:
+  PROJECT_NAME:
+    sh: echo ${PWD##*/}
+  MODULE: github.com/stuttgart-things/blueprints/repository-linting
+  VERSION: v1.17.0
+
+tasks:
+  lint-repository-files:
+    desc: Lint repository using Dagger blueprint function
+    cmds:
+      - |
+        dagger call -m {{ .MODULE }}@{{ .VERSION }} {{ .FUNCTION }} \
+        --src {{ .CODE_DIR | default "./" }} \
+        --yaml-config-path {{ .YAML_CONFIG_PATH }} \
+        export --path={{ .EXPORT_PATH | default "/tmp/lint-findings.txt" }}
+
+        code {{ .EXPORT_PATH | default "/tmp/lint-findings.txt" }}
+    vars:
+      FUNCTION: validate-multiple-technologies
+      CODE_DIR: "./"
+      YAML_CONFIG_PATH: ".yamllint.yaml"
+
+  analyze-lint-report:
+    desc: Lint test repository using Dagger blueprint
+    cmds:
+      - |
+        dagger call -m {{ .MODULE }}@{{ .VERSION }} {{ .FUNCTION }} \
+        --report-file {{ .REPORT_FILE }} \
+        export --path={{ .EXPORT_PATH }}
+
+        code {{ .EXPORT_PATH }}
+    vars:
+      FUNCTION: analyze-report
+      REPORT_FILE: /tmp/{{ .PROJECT_NAME }}-lint-findings.txt
+      EXPORT_PATH: "/tmp/{{ .PROJECT_NAME }}-analyzed-findings.txt"

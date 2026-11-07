@@ -1,0 +1,49 @@
+---
+version: 3
+tasks:
+  build:
+    desc: Build Go binary with ldflags (non-interactive, for calling from other taskfiles)
+    vars:
+      DAGGER_MODULE: '{{.DAGGER_MODULE | default "github.com/stuttgart-things/dagger/go"}}'
+      SRC: '{{.SRC | default "."}}'
+      GO_VERSION: '{{.GO_VERSION | default "1.25.6"}}'
+      OS: '{{.OS | default "linux"}}'
+      ARCH: '{{.ARCH | default "amd64"}}'
+      LDFLAGS: '{{.LDFLAGS | default ""}}'
+      PACKAGE_NAME: '{{.PACKAGE_NAME | default ""}}'
+      VERSION: '{{.VERSION | default "0.0.1"}}'
+      GO_MAIN_FILE: '{{.GO_MAIN_FILE | default "main.go"}}'
+      BIN_NAME: '{{.BIN_NAME | default "app"}}'
+      OUTPUT_PATH: '{{.OUTPUT_PATH | default "/tmp/go/build/"}}'
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE }} build-binary \
+          --src "{{ .SRC }}" \
+          --go-version "{{ .GO_VERSION }}" \
+          --os {{ .OS }} \
+          --arch {{ .ARCH }} \
+          {{if .PACKAGE_NAME}}--package-name {{ .PACKAGE_NAME }} \{{end}}
+          --ldflags "{{ .LDFLAGS }}" \
+          --go-main-file {{ .GO_MAIN_FILE }} \
+          --bin-name {{ .BIN_NAME }} \
+          export --path={{ .OUTPUT_PATH }} \
+          --progress plain -vv
+
+  release:
+    desc: Release Go binary with goreleaser via Dagger
+    vars:
+      DAGGER_MODULE: '{{.DAGGER_MODULE | default "github.com/stuttgart-things/dagger/go"}}'
+      SRC: '{{.SRC | default "."}}'
+      GITHUB_TOKEN_ENV: '{{.GITHUB_TOKEN_ENV | default "GITHUB_TOKEN"}}'
+      CHECK_ONLY: '{{.CHECK_ONLY | default "false"}}'
+      RELEASER_VERSION: '{{.RELEASER_VERSION | default "v2.13.3"}}'
+      OUTPUT_PATH: '{{.OUTPUT_PATH | default "/tmp/goreleaser.log"}}'
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE }} release \
+          --src {{ .SRC }} \
+          --token=env:{{ .GITHUB_TOKEN_ENV }} \
+          --check-only={{ .CHECK_ONLY }} \
+          --progress plain -vv \
+          --releaser-version {{ .RELEASER_VERSION }} \
+          export --path={{ .OUTPUT_PATH }}

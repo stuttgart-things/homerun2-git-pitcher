@@ -1,0 +1,90 @@
+---
+version: 3
+tasks:
+  lint-go:
+    desc: Lint Go project (non-interactive, for calling from other taskfiles)
+    vars:
+      MODULE: '{{.MODULE | default "github.com/stuttgart-things/dagger/go@v0.75.0"}}'
+      SRC: '{{.SRC | default "."}}'
+      TIMEOUT: '{{.TIMEOUT | default "300s"}}'
+    cmds:
+      - |
+        dagger call -m {{ .MODULE }} lint \
+        --src "{{ .SRC }}" \
+        --timeout {{ .TIMEOUT }} \
+        --progress plain -vv
+
+  lint-go-interactive:
+    desc: Lint Go project (interactive with prompts)
+    vars:
+      MODULE:
+        sh: |
+          gum input --placeholder "Dagger module" --value "github.com/stuttgart-things/dagger/go@v0.75.0"
+      SRC:
+        sh: |
+          gum input --placeholder "Source directory" --value "."
+      TIMEOUT:
+        sh: |
+          gum input --placeholder "Timeout (e.g., 300s)" --value "300s"
+    cmds:
+      - |
+        dagger call -m {{ .MODULE }} lint \
+        --src "{{ .SRC }}" \
+        --timeout {{ .TIMEOUT }} \
+        --progress plain -vv
+
+  run-lint-stage:
+    desc: Lint/validate multiple technologies (non-interactive, for calling from other taskfiles)
+    vars:
+      CI_MODULE: '{{.CI_MODULE | default "github.com/stuttgart-things/blueprints/go-microservice@v1.21.0"}}'
+      FUNCTION: '{{.FUNCTION | default "run-static-stage"}}'
+      SRC: '{{.SRC | default .USER_WORKING_DIR}}'
+      TEST: '{{.TEST | default "false"}}'
+      GO_VERSION: '{{.GO_VERSION | default "1.25.4"}}'
+      LINT_CAN_FAIL: '{{.LINT_CAN_FAIL | default "true"}}'
+      REPORT_PATH: '{{.REPORT_PATH | default "/tmp/all-findings.txt"}}'
+    cmds:
+      - |
+        dagger call -m {{ .CI_MODULE }} {{ .FUNCTION }} \
+        --src {{ .SRC }} \
+        --lintCanFail={{ .LINT_CAN_FAIL }} \
+        --go-Version={{ .GO_VERSION }} \
+        --test={{ .TEST }} \
+        --progress plain -vv \
+        export --path={{ .REPORT_PATH }}
+        cat {{ .REPORT_PATH }}
+
+  run-lint-stage-interactive:
+    desc: Lint/validate multiple technologies (interactive with prompts)
+    vars:
+      CI_MODULE:
+        sh: |
+          gum input --placeholder "CI Module" --value "github.com/stuttgart-things/blueprints/go-microservice@v1.21.0"
+      FUNCTION:
+        sh: |
+          gum input --placeholder "Function name" --value "run-static-stage"
+      SRC:
+        sh: |
+          gum input --placeholder "Source code dir" --value $(pwd)
+      TEST:
+        sh: |
+          gum choose "true" "false" --header "Run tests?"
+      GO_VERSION:
+        sh: |
+          gum input --placeholder "Go version" --value "1.25.4"
+      LINT_CAN_FAIL:
+        sh: |
+          gum choose "true" "false" --header "Allow lint to fail?"
+      REPORT_PATH:
+        sh: |
+          gum input --placeholder "Report path" --value "/tmp/all-findings.txt"
+    cmds:
+      - |
+        dagger call -m {{ .CI_MODULE }} {{ .FUNCTION }} \
+        --src {{ .SRC }} \
+        --lintCanFail={{ .LINT_CAN_FAIL }} \
+        --go-Version={{ .GO_VERSION }} \
+        --test={{ .TEST }} \
+        --progress plain -vv \
+        export --path={{ .REPORT_PATH }}
+        cat {{ .REPORT_PATH }}
