@@ -538,6 +538,13 @@ func (t kvTags) String() string {
 	return "," + strings.Join(t, ",")
 }
 
+// prTitleTag is the bare pull request title for the title= tag (#80):
+// trimmed, with each comma as ";" (as homerun2-omni-pitcher's labelTags),
+// since tags are comma-separated. Empty if the title is.
+func prTitleTag(title string) string {
+	return strings.ReplaceAll(strings.TrimSpace(title), ",", ";")
+}
+
 // prAction is the state change a pull request event reports: merged for a
 // closed pull request that was merged (older payloads), else the action.
 func prAction(action string, pr *github.PullRequest) string {
@@ -644,6 +651,7 @@ func parseEventPayload(event *github.Event, repo RepoConfig) (title, body, sever
 		kv.add("head", pr.GetHead().GetRef())
 		kv.add("base", pr.GetBase().GetRef())
 		kv.add("actor", actor)
+		kv.add("title", prTitleTag(pr.GetTitle()))
 
 	case *github.ReleaseEvent:
 		rel := p.GetRelease()
