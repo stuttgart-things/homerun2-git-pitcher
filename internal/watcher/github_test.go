@@ -444,31 +444,31 @@ func TestEventToMessage_PullRequestTags(t *testing.T) {
 			"merged", prEvent("merged", "maintainer", true, ""),
 			"PR #4404: feat: route teams (merged) on org/repo",
 			"PR merged by maintainer: feat/x → main",
-			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer",
+			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer,title=feat: route teams",
 		},
 		{
 			"closed and merged", prEvent("closed", "bot", true, "maintainer"),
 			"PR #4404: feat: route teams (closed) on org/repo",
 			"PR merged by maintainer: feat/x → main",
-			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer",
+			plain + "repo=org/repo,number=4404,action=merged,head=feat/x,base=main,actor=maintainer,title=feat: route teams",
 		},
 		{
 			"closed", prEvent("closed", "maintainer", false, ""),
 			"PR #4404: feat: route teams (closed) on org/repo",
 			"PR closed by dev: feat/x → main",
-			plain + "repo=org/repo,number=4404,action=closed,head=feat/x,base=main,actor=maintainer",
+			plain + "repo=org/repo,number=4404,action=closed,head=feat/x,base=main,actor=maintainer,title=feat: route teams",
 		},
 		{
 			"opened", prEvent("opened", "dev", false, ""),
 			"PR #4404: feat: route teams (opened) on org/repo",
 			"PR opened by dev: feat/x → main",
-			plain + "repo=org/repo,number=4404,action=opened,head=feat/x,base=main,actor=dev",
+			plain + "repo=org/repo,number=4404,action=opened,head=feat/x,base=main,actor=dev,title=feat: route teams",
 		},
 		{
 			"reopened", prEvent("reopened", "dev", false, ""),
 			"PR #4404: feat: route teams (reopened) on org/repo",
 			"PR reopened by dev: feat/x → main",
-			plain + "repo=org/repo,number=4404,action=reopened,head=feat/x,base=main,actor=dev",
+			plain + "repo=org/repo,number=4404,action=reopened,head=feat/x,base=main,actor=dev,title=feat: route teams",
 		},
 	}
 
@@ -486,6 +486,48 @@ func TestEventToMessage_PullRequestTags(t *testing.T) {
 			}
 			if msg.URL != "https://github.com/org/repo/pull/4404" {
 				t.Errorf("url = %q", msg.URL)
+			}
+		})
+	}
+}
+
+// TestEventToMessage_PullRequestTitleTag checks the title= tag (#80): the
+// bare PR title, trimmed, a comma as ";", left out when empty, while the
+// message title keeps the comma.
+func TestEventToMessage_PullRequestTitleTag(t *testing.T) {
+	repo := RepoConfig{Owner: "org", Name: "repo"}
+	const kv = "github,pull_request,org/repo,repo=org/repo,number=4404,action=opened,head=feat/x,base=main,actor=dev"
+
+	tests := []struct {
+		name  string
+		title string
+		msg   string
+		tags  string
+	}{
+		{"plain", "feat: route teams", "PR #4404: feat: route teams (opened) on org/repo", kv + ",title=feat: route teams"},
+		{"comma", "fix(a,b): one, two", "PR #4404: fix(a,b): one, two (opened) on org/repo", kv + ",title=fix(a;b): one; two"},
+		{"whitespace", "  feat: pad  ", "PR #4404:   feat: pad   (opened) on org/repo", kv + ",title=feat: pad"},
+		{"blank", "   ", "PR #4404:     (opened) on org/repo", kv},
+		{"empty", "", "PR #4404 (opened) on org/repo", kv},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := prEvent("opened", "dev", false, "")
+			var p github.PullRequestEvent
+			if err := json.Unmarshal(*event.RawPayload, &p); err != nil {
+				t.Fatal(err)
+			}
+			p.PullRequest.Title = github.Ptr(tt.title)
+			raw, _ := json.Marshal(p)
+			event = makeEvent("PullRequestEvent", "dev", raw)
+
+			msg := eventToMessage(event, repo)
+			if msg.Title != tt.msg {
+				t.Errorf("title = %q, want %q", msg.Title, tt.msg)
+			}
+			if msg.Tags != tt.tags {
+				t.Errorf("tags = %q, want %q", msg.Tags, tt.tags)
 			}
 		})
 	}

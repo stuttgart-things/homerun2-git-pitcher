@@ -197,12 +197,12 @@ curl -s http://localhost:8080/health | jq .
 
 ### Tags
 
-The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching. After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags for templates and card facts. Empty values are left out; a comma in a value becomes `_`.
+The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching. After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags for templates and card facts. Empty values are left out; a comma in a value becomes `_` (`;` in `title`).
 
 | GitHub Event | key=value tags |
 |-------------|----------------|
 | Push | `repo`, `branch`, `actor` |
-| Pull Request | `repo`, `number`, `action` (`opened`, `reopened`, `ready_for_review`, `closed`, `merged`; a closed and merged PR is `merged`), `head`, `base`, `actor` (the merger for `merged`) |
+| Pull Request | `repo`, `number`, `action` (`opened`, `reopened`, `ready_for_review`, `closed`, `merged`; a closed and merged PR is `merged`), `head`, `base`, `actor` (the merger for `merged`), `title` (the bare PR title; a comma becomes `;`, whitespace trimmed, left out when empty) |
 | Release | `repo`, `action`, `tag`, `actor` |
 | Workflow Run | `repo`, `workflow`, `conclusion`, `branch`, `actor` |
 | Issue Comment | `repo`, `number`, `action`, `actor` |
@@ -211,7 +211,7 @@ The plain tags `github,{event_type},{owner/repo}` come first and never change, s
 A merged pull request, for example:
 
 ```
-tags: github,pull_request,stuttgart-things/stuttgart-things,repo=stuttgart-things/stuttgart-things,number=4404,action=merged,head=feat/platform-sthings-teams-routing,base=main,actor=patrick-hermann-sva
+tags: github,pull_request,stuttgart-things/stuttgart-things,repo=stuttgart-things/stuttgart-things,number=4404,action=merged,head=feat/platform-sthings-teams-routing,base=main,actor=patrick-hermann-sva,title=feat(platform-sthings): route the catcher's Teams outputs to their channels
 url:  https://github.com/stuttgart-things/stuttgart-things/pull/4404
 ```
 

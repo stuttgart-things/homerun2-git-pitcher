@@ -68,7 +68,7 @@ func TestFillPayload_PullRequest(t *testing.T) {
 	if msg.URL != "https://github.com/org/repo/pull/1353" {
 		t.Errorf("unexpected url: %s", msg.URL)
 	}
-	want := "github,pull_request,org/repo,repo=org/repo,number=1353,action=merged,head=feat/x,base=main,actor=maintainer"
+	want := "github,pull_request,org/repo,repo=org/repo,number=1353,action=merged,head=feat/x,base=main,actor=maintainer,title=feat: pin motd"
 	if msg.Tags != want {
 		t.Errorf("tags = %q, want %q", msg.Tags, want)
 	}
