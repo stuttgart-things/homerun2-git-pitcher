@@ -497,6 +497,9 @@ func eventToMessage(event *github.Event, repo RepoConfig) homerun.Message {
 	title, body, severity, url, kv := parseEventPayload(event, repo)
 
 	tags := fmt.Sprintf("github,%s,%s", kind, repo.FullName())
+	if kind == EventIssueComment || kind == EventIssues {
+		tags += labelTags(event)
+	}
 	if kind == EventIssueComment {
 		body, tags = commentTags(body, tags)
 	}
@@ -816,4 +819,32 @@ func mergedBy(pr *github.PullRequest, event *github.Event) string {
 		return login
 	}
 	return event.GetActor().GetLogin()
+}
+
+// labelTags returns ",label=<name>" for each label of the issue an issues or
+// issue_comment event is about, so a catcher can route by label (a Teams
+// channel for the fleet analysis' issues, stuttgart-things#4556). Commas in a
+// label name become "-", the tags being comma-separated.
+func labelTags(event *github.Event) string {
+	payload, err := event.ParsePayload()
+	if err != nil {
+		return ""
+	}
+	var issue *github.Issue
+	switch p := payload.(type) {
+	case *github.IssuesEvent:
+		issue = p.GetIssue()
+	case *github.IssueCommentEvent:
+		issue = p.GetIssue()
+	}
+	if issue == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range issue.Labels {
+		if name := strings.ReplaceAll(l.GetName(), ",", "-"); name != "" {
+			b.WriteString(",label=" + name)
+		}
+	}
+	return b.String()
 }
