@@ -589,3 +589,22 @@ func TestEventToMessage_OtherEventTags(t *testing.T) {
 		})
 	}
 }
+
+// Issue labels travel as tags label=<name>, for routing by label.
+func TestEventToMessage_IssueLabelTags(t *testing.T) {
+	repo := RepoConfig{Owner: "stuttgart-things", Name: "stuttgart-things"}
+	issues := makeEvent("IssuesEvent", "bot", []byte(`{"action":"opened","issue":{"number":4588,"title":"Platte voll","html_url":"https://github.com/x/y/issues/4588","labels":[{"name":"fleet-analysis"},{"name":"severity/error"},{"name":"a,b"}]}}`))
+	msg := eventToMessage(issues, repo)
+	if !strings.Contains(msg.Tags, ",label=fleet-analysis,label=severity/error,label=a-b") {
+		t.Errorf("issues tags %q", msg.Tags)
+	}
+	comment := makeEvent("IssueCommentEvent", "bot", []byte(`{"action":"created","issue":{"number":7,"labels":[{"name":"daily-pr-report"}]},"comment":{"body":"<!-- homerun2:tags=morning -->report","html_url":"u"}}`))
+	msg = eventToMessage(comment, repo)
+	if !strings.Contains(msg.Tags, ",label=daily-pr-report,morning") {
+		t.Errorf("comment tags %q", msg.Tags)
+	}
+	pr := makeEvent("PullRequestEvent", "bot", []byte(`{"action":"opened","pull_request":{"number":1}}`))
+	if msg = eventToMessage(pr, repo); strings.Contains(msg.Tags, "label=") {
+		t.Errorf("pull request tags %q", msg.Tags)
+	}
+}

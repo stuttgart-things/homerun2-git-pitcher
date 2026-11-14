@@ -197,7 +197,7 @@ curl -s http://localhost:8080/health | jq .
 
 ### Tags
 
-The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching. After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags for templates and card facts. Empty values are left out; a comma in a value becomes `_` (`;` in `title`).
+The plain tags `github,{event_type},{owner/repo}` come first and never change, so filters such as `tags_contain: [pull_request]` keep matching. Issues and issue comments add one `label=<name>` per label of the issue right after them (a comma in a name becomes `-`), so a catcher can route by label, e.g. `tags_contain: [label=fleet-analysis]`. After them (and after any `homerun2:tags=` marker tags of a comment) come `key=value` tags for templates and card facts. Empty values are left out; a comma in a value becomes `_` (`;` in `title`).
 
 | GitHub Event | key=value tags |
 |-------------|----------------|
